@@ -9,7 +9,9 @@ const DATE_FIELDS = ['fe_declaracion', 'fe_ocurrencia', 'recep_veh', 'fe_entrega
 const NUMERIC_FIELDS = [
   'nu_reclamo','nu_poliza','nu_certificado','dias_transcurridos','anio',
   'valor_vehiculo','mt_piezas','mt_mano_obra','mt_estimado_total',
-  'mt_ajuste_siniestro','num_dpa','monto_dpa','cd_estatus','cd_tipo_reclamo','nu_movimiento'
+  'mt_ajuste_siniestro','num_dpa','monto_dpa','cd_estatus','cd_tipo_reclamo','nu_movimiento',
+  // Payment tracking fields
+  'monto_por_pagar','dias_vencimiento_pago','dp_dpa_total',
 ]
 
 function parseExcelDate(val) {
@@ -40,7 +42,14 @@ function parseRow(rawRow, headerMap) {
       row[supabaseCol] = parseExcelDate(val)
     } else if (NUMERIC_FIELDS.includes(supabaseCol)) {
       const n = Number(val)
-      row[supabaseCol] = isNaN(n) ? null : n
+      if (!isNaN(n)) {
+        row[supabaseCol] = n
+      } else {
+        // Fallback: strip non-numeric chars (handles spaces, dashes, text formatting)
+        const stripped = String(val).replace(/[^\d.]/g, '')
+        const n2 = Number(stripped)
+        row[supabaseCol] = stripped && !isNaN(n2) ? n2 : null
+      }
     } else {
       row[supabaseCol] = String(val).trim() || null
     }
@@ -75,7 +84,9 @@ export default function Importar({ onImportComplete }) {
     reader.onload = e => {
       try {
         const wb = XLSX.read(e.target.result, { type: 'array', cellDates: false })
-        const ws = wb.Sheets[wb.SheetNames[0]]
+        // Prefer the named fused sheet, fall back to first sheet
+        const targetSheet = wb.SheetNames.find(n => n === 'Reclamaciones_Fusionado') || wb.SheetNames[0]
+        const ws = wb.Sheets[targetSheet]
         const rows = XLSX.utils.sheet_to_json(ws, { raw: true, defval: null })
         if (!rows.length) { setError('El archivo está vacío.'); return }
 
@@ -121,10 +132,34 @@ export default function Importar({ onImportComplete }) {
         await file.arrayBuffer(),
         { type: 'array', cellDates: false }
       )
-      const ws = wb.Sheets[wb.SheetNames[0]]
+      const targetSheet = wb.SheetNames.find(n => n === 'Reclamaciones_Fusionado') || wb.SheetNames[0]
+      const ws = wb.Sheets[targetSheet]
       const allRows = XLSX.utils.sheet_to_json(ws, { raw: true, defval: null })
 
-      const parsed = allRows.map(r => parseRow(r, headerMap)).filter(r => r.nu_reclamo != null)
+      const rawParsed = allRows.map(r => parseRow(r, headerMap)).filter(r => r.nu_reclamo != null)
+      // Deduplicate by nu_reclamo — keep last occurrence (most recent data wins)
+      const deduped = new Map()
+      for (const r of rawParsed) deduped.set(r.nu_reclamo, r)
+      const parsed = Array.from(deduped.values())
+
+      // Count by FUENTE for the result summary
+      const fuenteCounts = parsed.reduce((acc, r) => {
+        const f = r.fuente || 'Sin Fuente'
+        acc[f] = (acc[f] || 0) + 1
+        return acc
+      }, {})
+
+      if (parsed.length === 0) {
+        const sample = allRows[0]
+          ? (() => {
+              const nuReclamoKey = Object.keys(allRows[0]).find(k => k.trim().toUpperCase() === 'NU_RECLAMO')
+              return nuReclamoKey ? `Valor en NU_RECLAMO: "${allRows[0][nuReclamoKey]}"` : 'Columna NU_RECLAMO no encontrada en el archivo'
+            })()
+          : 'El archivo no tiene filas de datos'
+        setError(`No se pudieron procesar filas — NU_RECLAMO debe ser un número entero. ${sample}`)
+        setImporting(false)
+        return
+      }
 
       const BATCH = 200
       let inserted = 0, updated = 0, errors = 0
@@ -138,7 +173,10 @@ export default function Importar({ onImportComplete }) {
 
         if (err) {
           errors += batch.length
-          console.error('Batch error:', err)
+          if (errors === batch.length) {
+            // Surface the first batch error to the user
+            setError(`Error de base de datos: ${err.message || err.code || JSON.stringify(err)}`)
+          }
         } else {
           // Supabase upsert doesn't distinguish insert vs update easily
           // so we count non-error rows as processed
@@ -146,7 +184,7 @@ export default function Importar({ onImportComplete }) {
         }
       }
 
-      setResult({ total: parsed.length, inserted, errors })
+      setResult({ total: parsed.length, inserted, errors, fuenteCounts })
       if (onImportComplete) onImportComplete()
     } catch (err) {
       setError('Error durante la importación: ' + err.message)
@@ -169,7 +207,7 @@ export default function Importar({ onImportComplete }) {
         <div>
           <h2 className="text-xl font-bold" style={{ color: '#1E293B' }}>Importar Datos</h2>
           <p className="text-sm mt-0.5" style={{ color: '#64748B' }}>
-            Carga el archivo Excel exportado desde SIRWEB
+            Carga el archivo Excel fusionado (SIRWEB + Estado de Cuenta)
           </p>
         </div>
         <button
@@ -232,11 +270,24 @@ export default function Importar({ onImportComplete }) {
       {result && (
         <div className="p-5 rounded-xl" style={{ background: '#F0FDF4', border: '1px solid #86EFAC' }}>
           <p className="font-semibold" style={{ color: '#15803D' }}>Importación completada</p>
-          <div className="flex gap-6 mt-2 text-sm" style={{ color: '#166534' }}>
+          <div className="flex flex-wrap gap-6 mt-2 text-sm" style={{ color: '#166534' }}>
             <span><strong>{result.total}</strong> filas procesadas</span>
             <span><strong>{result.inserted}</strong> registros actualizados/insertados</span>
             {result.errors > 0 && <span className="text-red-600"><strong>{result.errors}</strong> errores</span>}
           </div>
+          {result.fuenteCounts && Object.keys(result.fuenteCounts).length > 0 && (
+            <div className="mt-3 pt-3 border-t" style={{ borderColor: '#86EFAC' }}>
+              <p className="text-xs font-semibold mb-2" style={{ color: '#166534' }}>Desglose por FUENTE</p>
+              <div className="flex flex-wrap gap-3">
+                {Object.entries(result.fuenteCounts).sort((a, b) => b[1] - a[1]).map(([fuente, count]) => (
+                  <span key={fuente} className="px-2.5 py-1 rounded-full text-xs font-medium"
+                    style={{ background: '#DCFCE7', color: '#15803D' }}>
+                    {fuente}: <strong>{count}</strong>
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
           <button onClick={reset} className="mt-3 text-xs font-medium underline" style={{ color: '#15803D' }}>
             Importar otro archivo
           </button>

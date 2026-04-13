@@ -1,13 +1,18 @@
 import { useState, useMemo, useEffect } from 'react'
 import { useLocation } from 'react-router-dom'
 import StatusBadge from '../components/ui/StatusBadge'
+import SeverityBadge from '../components/ui/SeverityBadge'
+import LifecycleStatusBadge from '../components/ui/LifecycleStatusBadge'
 import SemaforoTag from '../components/ui/SemaforoTag'
 import SlidePanel from '../components/ui/SlidePanel'
+import ReclamoForm from '../components/ui/ReclamoForm'
+import FilterBar from '../components/FilterBar/FilterBar'
+import { useFilters, applyFilters } from '../context/FilterContext'
 import { getSemaforo } from '../lib/semaforo'
 import { exportToExcel } from '../lib/exportExcel'
-import { CLOSED_STATUSES } from '../lib/constants'
 
 const PAGE_SIZE = 50
+const APPLICABLE = { monto: false }
 
 function uniq(arr) { return [...new Set(arr.filter(Boolean))].sort() }
 
@@ -22,24 +27,27 @@ function fmtMoney(val) {
   return new Intl.NumberFormat('es-DO', { minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(val)
 }
 
-export default function Detalle({ data, loading }) {
+const ESTADO_PAGO_COLORS = {
+  'Pagado':      { bg: '#F0FDF4', text: '#15803D' },
+  'Pendiente':   { bg: '#FFFBEB', text: '#A16207' },
+  'Parcial':     { bg: '#EFF6FF', text: '#1D4ED8' },
+  'En Proceso':  { bg: '#F5F3FF', text: '#6D28D9' },
+}
+
+export default function Detalle({ data, loading, refresh }) {
   const location = useLocation()
+  const { filters } = useFilters()
 
-  const [search, setSearch]         = useState('')
-  const [filterPerito, setFilterPerito]   = useState('')
-  const [filterTaller, setFilterTaller]   = useState('')
-  const [filterEstatus, setFilterEstatus] = useState([])
-  const [filterTipo, setFilterTipo]       = useState('')
-  const [filterSem, setFilterSem]         = useState('')
-  const [filterSucursal, setFilterSucursal] = useState('')
-  const [dateFrom, setDateFrom]     = useState('')
-  const [dateTo, setDateTo]         = useState('')
-  const [sortKey, setSortKey]       = useState('fe_declaracion')
-  const [sortDir, setSortDir]       = useState('desc')
-  const [page, setPage]             = useState(1)
-  const [selected, setSelected]     = useState(null)
+  const [search, setSearch]           = useState('')
+  const [filterPerito, setFilterPerito]     = useState('')
+  const [filterTaller, setFilterTaller]     = useState('')
+  const [filterSem, setFilterSem]           = useState('')
+  const [sortKey, setSortKey]               = useState('fe_declaracion')
+  const [sortDir, setSortDir]               = useState('desc')
+  const [page, setPage]                     = useState(1)
+  const [selected, setSelected]             = useState(null)
+  const [showForm, setShowForm]             = useState(false)
 
-  // Pre-filter from navigation (e.g. Por Perito click)
   useEffect(() => {
     const params = new URLSearchParams(location.search)
     const p = params.get('perito')
@@ -48,16 +56,16 @@ export default function Detalle({ data, loading }) {
     if (t) setFilterTaller(t)
   }, [location.search])
 
+  // Apply global filters first
+  const globalFiltered = useMemo(() => applyFilters(data, filters, APPLICABLE), [data, filters])
+
   const options = useMemo(() => ({
-    peritos:   uniq(data.map(c => c.perito || 'Sin Asignar')),
-    talleres:  uniq(data.map(c => c.nm_taller || 'Sin Taller')),
-    estatuses: uniq(data.map(c => c.de_estatus)),
-    tipos:     uniq(data.map(c => c.tipo_reclamo)),
-    sucursales:uniq(data.map(c => c.de_sucursal)),
-  }), [data])
+    peritos:   uniq(globalFiltered.map(c => c.perito || 'Sin Asignar')),
+    talleres:  uniq(globalFiltered.map(c => c.nm_taller || 'Sin Taller')),
+  }), [globalFiltered])
 
   const filtered = useMemo(() => {
-    let rows = data
+    let rows = globalFiltered
     if (search) {
       const q = search.toLowerCase()
       rows = rows.filter(c =>
@@ -69,20 +77,10 @@ export default function Detalle({ data, loading }) {
       )
     }
     if (filterPerito) {
-      rows = rows.filter(c =>
-        filterPerito === 'Sin Asignar' ? !c.perito : c.perito === filterPerito
-      )
+      rows = rows.filter(c => filterPerito === 'Sin Asignar' ? !c.perito : c.perito === filterPerito)
     }
     if (filterTaller) {
-      rows = rows.filter(c =>
-        filterTaller === 'Sin Taller' ? !c.nm_taller : c.nm_taller === filterTaller
-      )
-    }
-    if (filterEstatus.length) {
-      rows = rows.filter(c => filterEstatus.includes(c.de_estatus))
-    }
-    if (filterTipo) {
-      rows = rows.filter(c => (c.tipo_reclamo || '') === filterTipo)
+      rows = rows.filter(c => filterTaller === 'Sin Taller' ? !c.nm_taller : c.nm_taller === filterTaller)
     }
     if (filterSem) {
       rows = rows.filter(c => {
@@ -91,20 +89,8 @@ export default function Detalle({ data, loading }) {
         return s?.key === filterSem
       })
     }
-    if (filterSucursal) {
-      rows = rows.filter(c => (c.de_sucursal || '') === filterSucursal)
-    }
-    if (dateFrom) {
-      const from = new Date(dateFrom)
-      rows = rows.filter(c => c.fe_declaracion && new Date(c.fe_declaracion) >= from)
-    }
-    if (dateTo) {
-      const to = new Date(dateTo)
-      to.setHours(23, 59, 59)
-      rows = rows.filter(c => c.fe_declaracion && new Date(c.fe_declaracion) <= to)
-    }
     return rows
-  }, [data, search, filterPerito, filterTaller, filterEstatus, filterTipo, filterSem, filterSucursal, dateFrom, dateTo])
+  }, [globalFiltered, search, filterPerito, filterTaller, filterSem])
 
   const sorted = useMemo(() => {
     return [...filtered].sort((a, b) => {
@@ -126,29 +112,35 @@ export default function Detalle({ data, loading }) {
     setPage(1)
   }
 
-  function clearFilters() {
-    setSearch(''); setFilterPerito(''); setFilterTaller('')
-    setFilterEstatus([]); setFilterTipo(''); setFilterSem('')
-    setFilterSucursal(''); setDateFrom(''); setDateTo('')
-    setPage(1)
+  function clearLocal() {
+    setSearch(''); setFilterPerito(''); setFilterTaller(''); setFilterSem(''); setPage(1)
   }
 
-  const hasFilters = search || filterPerito || filterTaller || filterEstatus.length
-    || filterTipo || filterSem || filterSucursal || dateFrom || dateTo
-
-  function toggleEstatus(val) {
-    setFilterEstatus(prev => prev.includes(val) ? prev.filter(v => v !== val) : [...prev, val])
-    setPage(1)
-  }
+  const hasLocal = search || filterPerito || filterTaller || filterSem
 
   const SortIcon = ({ col }) => {
     if (sortKey !== col) return <span className="ml-1 opacity-20">↕</span>
     return <span className="ml-1">{sortDir === 'asc' ? '↑' : '↓'}</span>
   }
 
+  const COLS = [
+    { key: 'nu_reclamo',         label: 'Reclamo' },
+    { key: 'nombre_asegurado',   label: 'Asegurado' },
+    { key: 'severidad',          label: 'Sev.' },
+    { key: 'perito',             label: 'Perito' },
+    { key: 'nm_taller',          label: 'Taller' },
+    { key: 'de_estatus',         label: 'Estatus' },
+    { key: 'tipo_reclamo_nuevo', label: 'Tipo' },
+    { key: 'fe_declaracion',     label: 'Declaración' },
+    { key: 'dias_transcurridos', label: 'Días' },
+    { key: null,                 label: 'Sem.' },
+    { key: 'mt_estimado_total',  label: 'Estimado' },
+    { key: 'mt_pagado',          label: 'Pagado' },
+  ]
+
   return (
     <div className="space-y-4">
-      {/* Header row */}
+      {/* Header */}
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
           <h2 className="text-xl font-bold" style={{ color: '#1E293B' }}>Detalle de Reclamaciones</h2>
@@ -156,26 +148,38 @@ export default function Detalle({ data, loading }) {
             {filtered.length} de {data.length} reclamaciones
           </p>
         </div>
-        <button
-          onClick={() => exportToExcel(filtered, data)}
-          className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors"
-          style={{ background: '#003DA5', color: 'white' }}
-          onMouseEnter={e => e.currentTarget.style.opacity = '0.9'}
-          onMouseLeave={e => e.currentTarget.style.opacity = '1'}
-        >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-              d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-          </svg>
-          Exportar Excel
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowForm(true)}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium"
+            style={{ background: '#003DA5', color: 'white' }}
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+            </svg>
+            Nueva Reclamación
+          </button>
+          <button
+            onClick={() => exportToExcel(filtered, data)}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium"
+            style={{ background: '#F1F5F9', color: '#475569' }}
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+            </svg>
+            Exportar
+          </button>
+        </div>
       </div>
 
-      {/* Filters */}
+      {/* Global FilterBar */}
+      <FilterBar data={data} applicableFilters={APPLICABLE} />
+
+      {/* Local quick filters */}
       <div className="bg-white rounded-xl p-4" style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          {/* Search */}
-          <div className="col-span-2 md:col-span-2 relative">
+          <div className="col-span-2 relative">
             <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4" style={{ color: '#94A3B8' }}
               fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
@@ -202,12 +206,6 @@ export default function Detalle({ data, loading }) {
             {options.talleres.map(t => <option key={t} value={t}>{t}</option>)}
           </select>
 
-          <select value={filterTipo} onChange={e => { setFilterTipo(e.target.value); setPage(1) }}
-            className="py-2 px-3 text-sm rounded-lg border outline-none" style={{ borderColor: '#E2E8F0', color: '#334155' }}>
-            <option value="">Todos los Tipos</option>
-            {options.tipos.map(t => <option key={t} value={t}>{t}</option>)}
-          </select>
-
           <select value={filterSem} onChange={e => { setFilterSem(e.target.value); setPage(1) }}
             className="py-2 px-3 text-sm rounded-lg border outline-none" style={{ borderColor: '#E2E8F0', color: '#334155' }}>
             <option value="">Todo Semáforo</option>
@@ -217,39 +215,11 @@ export default function Detalle({ data, loading }) {
             <option value="ninguno">Sin Semáforo</option>
           </select>
 
-          <select value={filterSucursal} onChange={e => { setFilterSucursal(e.target.value); setPage(1) }}
-            className="py-2 px-3 text-sm rounded-lg border outline-none" style={{ borderColor: '#E2E8F0', color: '#334155' }}>
-            <option value="">Todas las Sucursales</option>
-            {options.sucursales.map(s => <option key={s} value={s}>{s}</option>)}
-          </select>
-
-          <input type="date" value={dateFrom} onChange={e => { setDateFrom(e.target.value); setPage(1) }}
-            className="py-2 px-3 text-sm rounded-lg border outline-none" style={{ borderColor: '#E2E8F0', color: '#334155' }} />
-          <input type="date" value={dateTo} onChange={e => { setDateTo(e.target.value); setPage(1) }}
-            className="py-2 px-3 text-sm rounded-lg border outline-none" style={{ borderColor: '#E2E8F0', color: '#334155' }} />
-        </div>
-
-        {/* Estatus multi-select chips */}
-        <div className="flex flex-wrap gap-2 mt-3">
-          {options.estatuses.slice(0, 10).map(e => (
-            <button
-              key={e}
-              onClick={() => toggleEstatus(e)}
-              className="px-2.5 py-1 rounded-full text-xs font-medium transition-colors border"
-              style={{
-                background: filterEstatus.includes(e) ? '#003DA5' : '#F8FAFC',
-                color: filterEstatus.includes(e) ? 'white' : '#64748B',
-                borderColor: filterEstatus.includes(e) ? '#003DA5' : '#E2E8F0',
-              }}
-            >
-              {e}
-            </button>
-          ))}
-          {hasFilters && (
-            <button onClick={clearFilters}
-              className="px-2.5 py-1 rounded-full text-xs font-medium border"
-              style={{ color: '#EF4444', borderColor: '#FECACA', background: '#FEF2F2' }}>
-              Limpiar filtros
+          {hasLocal && (
+            <button onClick={clearLocal}
+              className="px-3 py-2 rounded-lg text-sm font-medium"
+              style={{ color: '#EF4444', background: '#FEF2F2' }}>
+              Limpiar local
             </button>
           )}
         </div>
@@ -261,18 +231,7 @@ export default function Detalle({ data, loading }) {
           <table className="w-full text-sm">
             <thead style={{ background: '#F8FAFC' }}>
               <tr>
-                {[
-                  { key: 'nu_reclamo',       label: 'Reclamo' },
-                  { key: 'nombre_asegurado', label: 'Asegurado' },
-                  { key: 'perito',           label: 'Perito' },
-                  { key: 'nm_taller',        label: 'Taller' },
-                  { key: 'de_estatus',       label: 'Estatus' },
-                  { key: 'fe_declaracion',   label: 'Declaración' },
-                  { key: 'dias_transcurridos', label: 'Días' },
-                  { key: null,               label: 'Sem.' },
-                  { key: 'mt_estimado_total', label: 'Estimado' },
-                  { key: 'tipo_reclamo',     label: 'Tipo' },
-                ].map(({ key, label }) => (
+                {COLS.map(({ key, label }) => (
                   <th
                     key={label}
                     onClick={key ? () => toggleSort(key) : undefined}
@@ -287,16 +246,16 @@ export default function Detalle({ data, loading }) {
             <tbody>
               {pageData.length === 0 && (
                 <tr>
-                  <td colSpan={10} className="px-4 py-12 text-center text-sm" style={{ color: '#94A3B8' }}>
+                  <td colSpan={COLS.length} className="px-4 py-12 text-center text-sm" style={{ color: '#94A3B8' }}>
                     No hay reclamaciones con los filtros seleccionados
                   </td>
                 </tr>
               )}
-              {pageData.map((c, i) => (
+              {pageData.map(c => (
                 <tr
                   key={c.id}
                   onClick={() => setSelected(c)}
-                  className="border-t cursor-pointer transition-colors"
+                  className="border-t cursor-pointer"
                   style={{ borderColor: '#F1F5F9' }}
                   onMouseEnter={e => e.currentTarget.style.background = '#F8FAFC'}
                   onMouseLeave={e => e.currentTarget.style.background = 'white'}
@@ -304,17 +263,23 @@ export default function Detalle({ data, loading }) {
                   <td className="px-4 py-3 font-mono font-semibold" style={{ color: '#003DA5' }}>
                     {c.nu_reclamo}
                   </td>
-                  <td className="px-4 py-3 max-w-[160px] truncate" style={{ color: '#334155' }}>
+                  <td className="px-4 py-3 max-w-[140px] truncate" style={{ color: '#334155' }}>
                     {c.nombre_asegurado || c.nombre_reclamante || '—'}
+                  </td>
+                  <td className="px-4 py-3">
+                    <SeverityBadge code={c.severidad} size="xs" />
                   </td>
                   <td className="px-4 py-3 whitespace-nowrap" style={{ color: '#334155' }}>
                     {c.perito || <span style={{ color: '#94A3B8' }}>Sin Asignar</span>}
                   </td>
-                  <td className="px-4 py-3 max-w-[140px] truncate" style={{ color: '#334155' }}>
+                  <td className="px-4 py-3 max-w-[130px] truncate" style={{ color: '#334155' }}>
                     {c.nm_taller || <span style={{ color: '#94A3B8' }}>Sin Taller</span>}
                   </td>
                   <td className="px-4 py-3">
-                    <StatusBadge cdEstatus={c.cd_estatus} deEstatus={c.de_estatus} />
+                    <LifecycleStatusBadge deEstatus={c.de_estatus} cdEstatus={c.cd_estatus} size="xs" />
+                  </td>
+                  <td className="px-4 py-3 text-xs whitespace-nowrap" style={{ color: '#64748B' }}>
+                    {c.tipo_reclamo_nuevo || c.tipo_reclamo || '—'}
                   </td>
                   <td className="px-4 py-3 whitespace-nowrap text-xs" style={{ color: '#64748B' }}>
                     {formatDate(c.fe_declaracion)}
@@ -328,8 +293,12 @@ export default function Detalle({ data, loading }) {
                   <td className="px-4 py-3 text-right whitespace-nowrap text-xs" style={{ color: '#475569' }}>
                     {c.mt_estimado_total ? fmtMoney(c.mt_estimado_total) : '—'}
                   </td>
-                  <td className="px-4 py-3 text-xs whitespace-nowrap" style={{ color: '#64748B' }}>
-                    {c.tipo_reclamo || '—'}
+                  <td className="px-4 py-3 text-right whitespace-nowrap text-xs">
+                    {c.mt_pagado ? (
+                      <span style={{ color: '#15803D' }}>{fmtMoney(c.mt_pagado)}</span>
+                    ) : (
+                      <span style={{ color: '#94A3B8' }}>—</span>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -352,11 +321,8 @@ export default function Detalle({ data, loading }) {
               const p = start + i
               return (
                 <button key={p} onClick={() => setPage(p)}
-                  className="w-7 h-7 rounded text-xs font-medium transition-colors"
-                  style={{
-                    background: p === page ? '#003DA5' : 'transparent',
-                    color: p === page ? 'white' : '#64748B'
-                  }}>
+                  className="w-7 h-7 rounded text-xs font-medium"
+                  style={{ background: p === page ? '#003DA5' : 'transparent', color: p === page ? 'white' : '#64748B' }}>
                   {p}
                 </button>
               )
@@ -369,8 +335,20 @@ export default function Detalle({ data, loading }) {
         </div>
       </div>
 
-      {/* Slide panel */}
-      <SlidePanel claim={selected} onClose={() => setSelected(null)} />
+      <SlidePanel
+        claim={selected}
+        onClose={() => setSelected(null)}
+        onEditSaved={refresh}
+        existingData={data}
+      />
+
+      {showForm && (
+        <ReclamoForm
+          existingData={data}
+          onClose={() => setShowForm(false)}
+          onSaved={refresh}
+        />
+      )}
     </div>
   )
 }
