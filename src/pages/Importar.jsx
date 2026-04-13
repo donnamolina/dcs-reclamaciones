@@ -17,7 +17,6 @@ const NUMERIC_FIELDS = [
 function parseExcelDate(val) {
   if (!val) return null
   if (typeof val === 'number') {
-    // Excel serial date
     const date = XLSX.SSF.parse_date_code(val)
     if (!date) return null
     return new Date(Date.UTC(date.y, date.m - 1, date.d, date.H || 0, date.M || 0, date.S || 0)).toISOString()
@@ -45,7 +44,6 @@ function parseRow(rawRow, headerMap) {
       if (!isNaN(n)) {
         row[supabaseCol] = n
       } else {
-        // Fallback: strip non-numeric chars (handles spaces, dashes, text formatting)
         const stripped = String(val).replace(/[^\d.]/g, '')
         const n2 = Number(stripped)
         row[supabaseCol] = stripped && !isNaN(n2) ? n2 : null
@@ -64,27 +62,57 @@ function downloadTemplate() {
   XLSX.writeFile(wb, 'DCS_Plantilla_Importacion.xlsx')
 }
 
+/** Detect nu_reclamo values that appear more than once in the parsed rows. */
+function findDuplicates(rows) {
+  const counts = {}
+  for (const r of rows) {
+    if (r.nu_reclamo != null) counts[r.nu_reclamo] = (counts[r.nu_reclamo] || 0) + 1
+  }
+  return Object.entries(counts).filter(([, n]) => n > 1).map(([id]) => id)
+}
+
+/** Deduplicate rows by nu_reclamo, keeping first or last occurrence. */
+function dedupe(rows, keepMode) {
+  if (keepMode === 'first') {
+    const seen = new Set()
+    return rows.filter(r => {
+      if (r.nu_reclamo == null || seen.has(r.nu_reclamo)) return false
+      seen.add(r.nu_reclamo)
+      return true
+    })
+  }
+  // 'last': iterate in reverse and keep first seen (= last in original order)
+  const seen = new Set()
+  return [...rows].reverse().filter(r => {
+    if (r.nu_reclamo == null || seen.has(r.nu_reclamo)) return false
+    seen.add(r.nu_reclamo)
+    return true
+  }).reverse()
+}
+
 export default function Importar({ onImportComplete }) {
-  const [dragging, setDragging] = useState(false)
-  const [file, setFile] = useState(null)
-  const [preview, setPreview] = useState([])
-  const [headers, setHeaders] = useState([])
-  const [headerMap, setHeaderMap] = useState({})
-  const [unmapped, setUnmapped] = useState([])
-  const [importing, setImporting] = useState(false)
-  const [result, setResult] = useState(null)
-  const [error, setError] = useState(null)
+  const [dragging, setDragging]     = useState(false)
+  const [file, setFile]             = useState(null)
+  const [preview, setPreview]       = useState([])
+  const [headerMap, setHeaderMap]   = useState({})
+  const [unmapped, setUnmapped]     = useState([])
+  const [allParsed, setAllParsed]   = useState([])   // all valid parsed rows from file
+  const [duplicates, setDuplicates] = useState([])   // nu_reclamo values with >1 row in file
+  const [importing, setImporting]   = useState(false)
+  const [result, setResult]         = useState(null)
+  const [error, setError]           = useState(null)
   const inputRef = useRef()
 
   function processFile(f) {
     setFile(f)
     setResult(null)
     setError(null)
+    setDuplicates([])
+    setAllParsed([])
     const reader = new FileReader()
     reader.onload = e => {
       try {
         const wb = XLSX.read(e.target.result, { type: 'array', cellDates: false })
-        // Prefer the named fused sheet, fall back to first sheet
         const targetSheet = wb.SheetNames.find(n => n === 'Reclamaciones_Fusionado') || wb.SheetNames[0]
         const ws = wb.Sheets[targetSheet]
         const rows = XLSX.utils.sheet_to_json(ws, { raw: true, defval: null })
@@ -93,17 +121,20 @@ export default function Importar({ onImportComplete }) {
         const fileHeaders = Object.keys(rows[0])
         const mapped = {}
         const notMapped = []
-
         fileHeaders.forEach(h => {
           const key = h.trim().toUpperCase()
           if (COLUMN_MAP[key]) mapped[h] = COLUMN_MAP[key]
           else notMapped.push(h)
         })
 
-        setHeaders(fileHeaders)
         setHeaderMap(mapped)
         setUnmapped(notMapped.filter(h => !['CD_ENTIDAD','CD_AREA'].includes(h.trim().toUpperCase())))
         setPreview(rows.slice(0, 10))
+
+        // Parse all rows and detect in-file duplicates immediately
+        const parsed = rows.map(r => parseRow(r, mapped)).filter(r => r.nu_reclamo != null)
+        setAllParsed(parsed)
+        setDuplicates(findDuplicates(parsed))
       } catch (err) {
         setError('Error al leer el archivo: ' + err.message)
       }
@@ -117,30 +148,24 @@ export default function Importar({ onImportComplete }) {
     const f = e.dataTransfer.files[0]
     if (f) processFile(f)
   }, [])
-
-  const onDragOver = e => { e.preventDefault(); setDragging(true) }
+  const onDragOver  = e => { e.preventDefault(); setDragging(true) }
   const onDragLeave = () => setDragging(false)
 
-  async function handleImport() {
-    if (!preview.length) return
+  async function handleImport(keepMode) {
+    if (!allParsed.length) return
     setImporting(true)
     setResult(null)
     setError(null)
 
     try {
-      const wb = XLSX.read(
-        await file.arrayBuffer(),
-        { type: 'array', cellDates: false }
-      )
-      const targetSheet = wb.SheetNames.find(n => n === 'Reclamaciones_Fusionado') || wb.SheetNames[0]
-      const ws = wb.Sheets[targetSheet]
-      const allRows = XLSX.utils.sheet_to_json(ws, { raw: true, defval: null })
+      if (allParsed.length === 0) {
+        setError('No se pudieron procesar filas — NO_RECLAMACION / NU_RECLAMO debe ser un número entero.')
+        setImporting(false)
+        return
+      }
 
-      const rawParsed = allRows.map(r => parseRow(r, headerMap)).filter(r => r.nu_reclamo != null)
-      // Deduplicate by nu_reclamo — keep last occurrence (most recent data wins)
-      const deduped = new Map()
-      for (const r of rawParsed) deduped.set(r.nu_reclamo, r)
-      const parsed = Array.from(deduped.values())
+      // Apply chosen deduplication strategy
+      const parsed = dedupe(allParsed, keepMode || 'last')
 
       // Count by FUENTE for the result summary
       const fuenteCounts = parsed.reduce((acc, r) => {
@@ -149,20 +174,8 @@ export default function Importar({ onImportComplete }) {
         return acc
       }, {})
 
-      if (parsed.length === 0) {
-        const sample = allRows[0]
-          ? (() => {
-              const nuReclamoKey = Object.keys(allRows[0]).find(k => k.trim().toUpperCase() === 'NU_RECLAMO')
-              return nuReclamoKey ? `Valor en NU_RECLAMO: "${allRows[0][nuReclamoKey]}"` : 'Columna NU_RECLAMO no encontrada en el archivo'
-            })()
-          : 'El archivo no tiene filas de datos'
-        setError(`No se pudieron procesar filas — NU_RECLAMO debe ser un número entero. ${sample}`)
-        setImporting(false)
-        return
-      }
-
       const BATCH = 200
-      let inserted = 0, updated = 0, errors = 0
+      let inserted = 0, errors = 0
 
       for (let i = 0; i < parsed.length; i += BATCH) {
         const batch = parsed.slice(i, i + BATCH)
@@ -174,17 +187,14 @@ export default function Importar({ onImportComplete }) {
         if (err) {
           errors += batch.length
           if (errors === batch.length) {
-            // Surface the first batch error to the user
             setError(`Error de base de datos: ${err.message || err.code || JSON.stringify(err)}`)
           }
         } else {
-          // Supabase upsert doesn't distinguish insert vs update easily
-          // so we count non-error rows as processed
           inserted += data?.length || batch.length
         }
       }
 
-      setResult({ total: parsed.length, inserted, errors, fuenteCounts })
+      setResult({ total: parsed.length, inserted, errors, fuenteCounts, keepMode })
       if (onImportComplete) onImportComplete()
     } catch (err) {
       setError('Error durante la importación: ' + err.message)
@@ -194,12 +204,13 @@ export default function Importar({ onImportComplete }) {
   }
 
   function reset() {
-    setFile(null); setPreview([]); setHeaders([])
-    setHeaderMap({}); setUnmapped([]); setResult(null); setError(null)
+    setFile(null); setPreview([]); setHeaderMap({}); setUnmapped([])
+    setAllParsed([]); setDuplicates([]); setResult(null); setError(null)
   }
 
-  const mappedCount = Object.keys(headerMap).length
-  const hasPreview = preview.length > 0
+  const mappedCount  = Object.keys(headerMap).length
+  const hasPreview   = preview.length > 0
+  const hasDupes     = duplicates.length > 0
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
@@ -271,9 +282,14 @@ export default function Importar({ onImportComplete }) {
         <div className="p-5 rounded-xl" style={{ background: '#F0FDF4', border: '1px solid #86EFAC' }}>
           <p className="font-semibold" style={{ color: '#15803D' }}>Importación completada</p>
           <div className="flex flex-wrap gap-6 mt-2 text-sm" style={{ color: '#166534' }}>
-            <span><strong>{result.total}</strong> filas procesadas</span>
+            <span><strong>{result.total}</strong> filas importadas</span>
             <span><strong>{result.inserted}</strong> registros actualizados/insertados</span>
-            {result.errors > 0 && <span className="text-red-600"><strong>{result.errors}</strong> errores</span>}
+            {result.errors > 0 && <span style={{ color: '#B91C1C' }}><strong>{result.errors}</strong> errores</span>}
+            {result.keepMode && (
+              <span style={{ color: '#6B7280' }}>
+                Dedup: {result.keepMode === 'first' ? 'primer registro' : 'último registro'}
+              </span>
+            )}
           </div>
           {result.fuenteCounts && Object.keys(result.fuenteCounts).length > 0 && (
             <div className="mt-3 pt-3 border-t" style={{ borderColor: '#86EFAC' }}>
@@ -302,15 +318,19 @@ export default function Importar({ onImportComplete }) {
             <div className="flex items-start justify-between">
               <div>
                 <p className="font-semibold text-sm" style={{ color: '#1E293B' }}>{file?.name}</p>
-                <div className="flex gap-4 mt-2 text-sm" style={{ color: '#64748B' }}>
+                <div className="flex flex-wrap gap-4 mt-2 text-sm" style={{ color: '#64748B' }}>
                   <span>
                     <span className="font-medium" style={{ color: '#15803D' }}>{mappedCount}</span>
                     {' '}columnas mapeadas
                   </span>
+                  <span>
+                    <span className="font-medium" style={{ color: '#003DA5' }}>{allParsed.length}</span>
+                    {' '}filas válidas
+                  </span>
                   {unmapped.length > 0 && (
                     <span>
                       <span className="font-medium" style={{ color: '#D97706' }}>{unmapped.length}</span>
-                      {' '}columnas ignoradas: {unmapped.join(', ')}
+                      {' '}ignoradas: {unmapped.join(', ')}
                     </span>
                   )}
                 </div>
@@ -378,33 +398,116 @@ export default function Importar({ onImportComplete }) {
             </div>
           </div>
 
-          {/* Import button */}
-          <div className="flex justify-end">
-            <button
-              onClick={handleImport}
-              disabled={importing || mappedCount === 0}
-              className="flex items-center gap-2 px-6 py-2.5 rounded-lg text-white text-sm font-semibold transition-opacity disabled:opacity-50"
-              style={{ background: '#003DA5' }}
-            >
-              {importing ? (
-                <>
-                  <svg className="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                      d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                  </svg>
-                  Importando...
-                </>
-              ) : (
-                <>
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                      d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
-                  </svg>
-                  Confirmar Importación
-                </>
-              )}
-            </button>
-          </div>
+          {/* ── Duplicate warning ── */}
+          {hasDupes && (
+            <div className="rounded-xl p-5" style={{ background: '#FFFBEB', border: '1px solid #FCD34D' }}>
+              <div className="flex items-start gap-3">
+                <svg className="w-5 h-5 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                  style={{ color: '#D97706' }}>
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                    d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+                </svg>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold" style={{ color: '#92400E' }}>
+                    {duplicates.length} valor{duplicates.length !== 1 ? 'es' : ''} de NO_RECLAMACION duplicado{duplicates.length !== 1 ? 's' : ''} en el archivo
+                  </p>
+                  <p className="text-xs mt-1" style={{ color: '#A16207' }}>
+                    Elige qué registro conservar cuando un mismo número de reclamación aparece más de una vez.
+                  </p>
+
+                  {/* Scrollable list */}
+                  <div className="mt-3 max-h-28 overflow-y-auto rounded-lg p-2 text-xs font-mono"
+                    style={{ background: '#FEF3C7', color: '#78350F' }}>
+                    {duplicates.slice(0, 100).join(' · ')}
+                    {duplicates.length > 100 && ` · … y ${duplicates.length - 100} más`}
+                  </div>
+
+                  {/* Resolution buttons */}
+                  <div className="flex flex-wrap gap-3 mt-4">
+                    <button
+                      onClick={() => !importing && handleImport('first')}
+                      disabled={importing}
+                      className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-opacity disabled:opacity-50"
+                      style={{ background: '#003DA5', color: 'white' }}
+                    >
+                      {importing ? (
+                        <svg className="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                            d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                        </svg>
+                      ) : (
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 11l7-7 7 7M5 19l7-7 7 7" />
+                        </svg>
+                      )}
+                      Mantener primer registro
+                    </button>
+
+                    <button
+                      onClick={() => !importing && handleImport('last')}
+                      disabled={importing}
+                      className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-opacity disabled:opacity-50"
+                      style={{ background: '#1E293B', color: 'white' }}
+                    >
+                      {importing ? (
+                        <svg className="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                            d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                        </svg>
+                      ) : (
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 13l-7 7-7-7M19 5l-7 7-7-7" />
+                        </svg>
+                      )}
+                      Mantener último registro
+                    </button>
+
+                    <button
+                      onClick={reset}
+                      disabled={importing}
+                      className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-opacity disabled:opacity-50"
+                      style={{ background: '#FEF2F2', color: '#B91C1C' }}
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                      Cancelar importación
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── Normal confirm button (no duplicates) ── */}
+          {!hasDupes && (
+            <div className="flex justify-end">
+              <button
+                onClick={() => handleImport('last')}
+                disabled={importing || mappedCount === 0}
+                className="flex items-center gap-2 px-6 py-2.5 rounded-lg text-white text-sm font-semibold transition-opacity disabled:opacity-50"
+                style={{ background: '#003DA5' }}
+              >
+                {importing ? (
+                  <>
+                    <svg className="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                        d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                    Importando...
+                  </>
+                ) : (
+                  <>
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                        d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                    </svg>
+                    Confirmar Importación ({allParsed.length.toLocaleString()} filas)
+                  </>
+                )}
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>
