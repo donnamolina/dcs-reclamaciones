@@ -30,39 +30,43 @@ const MONTH_LABELS = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct
 export default function Resumen({ data, loading }) {
   const { filters } = useFilters()
   const filtered = useMemo(() => applyFilters(data, filters, APPLICABLE), [data, filters])
+  // Exclude payment-only rows (fuente = 'DP_DPA_SHEETS') from claim stats;
+  // they are still counted in montoPorPagar below.
+  const claims = useMemo(() => filtered.filter(c => c.fuente !== 'DP_DPA_SHEETS'), [filtered])
 
   const stats = useMemo(() => {
     if (!filtered.length) return null
 
-    const total = filtered.length
-    const open    = filtered.filter(c => !LIFECYCLE_CLOSED.includes(c.de_estatus) && c.cd_estatus !== 5 && c.cd_estatus !== 6).length
-    const closed  = filtered.filter(c => LIFECYCLE_CLOSED.includes(c.de_estatus) || c.cd_estatus === 5).length
-    const dias    = filtered.filter(c => c.dias_transcurridos != null).map(c => c.dias_transcurridos)
+    const total = claims.length
+    const open    = claims.filter(c => !LIFECYCLE_CLOSED.includes(c.de_estatus) && c.cd_estatus !== 5 && c.cd_estatus !== 6).length
+    const closed  = claims.filter(c => LIFECYCLE_CLOSED.includes(c.de_estatus) || c.cd_estatus === 5).length
+    const dias    = claims.filter(c => c.dias_transcurridos != null).map(c => c.dias_transcurridos)
     const promDias = dias.length ? Math.round(dias.reduce((a, b) => a + b, 0) / dias.length) : 0
-    const montoTotal  = filtered.reduce((s, c) => s + (Number(c.mt_estimado_total) || 0), 0)
-    const montoPagado = filtered.reduce((s, c) => s + (Number(c.mt_pagado) || 0), 0)
+    const montoTotal  = claims.reduce((s, c) => s + (Number(c.mt_estimado_total) || 0), 0)
+    const montoPagado = claims.reduce((s, c) => s + (Number(c.mt_pagado) || 0), 0)
     const montoPendiente = montoTotal - montoPagado
+    // montoPorPagar includes DP_DPA_SHEETS rows — they are payment-only records
     const montoPorPagar = filtered.reduce((s, c) => s + (Number(c.monto_por_pagar) || 0), 0)
 
     // Severity donut
     const bySeverity = Object.entries(SEVERITY_MAP).map(([code, info]) => ({
       name: info.label,
-      value: filtered.filter(c => c.severidad === code).length,
+      value: claims.filter(c => c.severidad === code).length,
       fill: info.hex,
     })).filter(e => e.value > 0)
-    const sinSeveridad = filtered.filter(c => !c.severidad).length
+    const sinSeveridad = claims.filter(c => !c.severidad).length
     if (sinSeveridad > 0) bySeverity.push({ name: 'Sin Severidad', value: sinSeveridad, fill: '#CBD5E1' })
 
     // Tipo reclamo nuevo
     const byTipo = TIPO_RECLAMO_NUEVO.map(tipo => ({
       name: tipo,
-      value: filtered.filter(c => c.tipo_reclamo_nuevo === tipo).length,
+      value: claims.filter(c => c.tipo_reclamo_nuevo === tipo).length,
     })).filter(e => e.value > 0)
-    const sinTipo = filtered.filter(c => !c.tipo_reclamo_nuevo).length
+    const sinTipo = claims.filter(c => !c.tipo_reclamo_nuevo).length
     if (sinTipo > 0) byTipo.push({ name: 'Sin Tipo', value: sinTipo })
 
     // Semáforo
-    const openClaims = filtered.filter(c => !LIFECYCLE_CLOSED.includes(c.de_estatus) && c.cd_estatus !== 5 && c.cd_estatus !== 6)
+    const openClaims = claims.filter(c => !LIFECYCLE_CLOSED.includes(c.de_estatus) && c.cd_estatus !== 5 && c.cd_estatus !== 6)
     const verde    = openClaims.filter(c => getSemaforo(c)?.key === 'verde').length
     const amarillo = openClaims.filter(c => getSemaforo(c)?.key === 'amarillo').length
     const rojo     = openClaims.filter(c => getSemaforo(c)?.key === 'rojo').length
@@ -73,7 +77,7 @@ export default function Resumen({ data, loading }) {
       const d = new Date(now.getFullYear(), now.getMonth() - 11 + i, 1)
       return { year: d.getFullYear(), month: d.getMonth(), label: `${MONTH_LABELS[d.getMonth()]} ${String(d.getFullYear()).slice(2)}`, abiertos: 0, cerrados: 0 }
     })
-    filtered.forEach(c => {
+    claims.forEach(c => {
       if (c.fe_declaracion) {
         const d = new Date(c.fe_declaracion)
         const m = months.find(mo => mo.year === d.getFullYear() && mo.month === d.getMonth())
@@ -87,7 +91,7 @@ export default function Resumen({ data, loading }) {
     })
 
     // Top 5 talleres
-    const tallerCounts = filtered.reduce((acc, c) => {
+    const tallerCounts = claims.reduce((acc, c) => {
       const t = c.nm_taller || 'Sin Taller'
       acc[t] = (acc[t] || 0) + 1
       return acc
@@ -99,7 +103,7 @@ export default function Resumen({ data, loading }) {
       .map(([name, value]) => ({ name: name.length > 22 ? name.slice(0, 22) + '…' : name, value }))
 
     // Top 5 peritos by active
-    const peritoActive = filtered.reduce((acc, c) => {
+    const peritoActive = claims.reduce((acc, c) => {
       if (LIFECYCLE_CLOSED.includes(c.de_estatus) || c.cd_estatus === 5) return acc
       const p = c.perito || 'Sin Asignar'
       acc[p] = (acc[p] || 0) + 1

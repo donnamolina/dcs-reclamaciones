@@ -26,11 +26,12 @@ export default function PorTaller({ data, loading }) {
   const navigate = useNavigate()
   const { filters } = useFilters()
   const filtered = useMemo(() => applyFilters(data, filters, APPLICABLE), [data, filters])
+  const claims = useMemo(() => filtered.filter(c => c.fuente !== 'DP_DPA_SHEETS'), [filtered])
 
   const rows = useMemo(() => {
     const map = {}
 
-    filtered.forEach(c => {
+    claims.forEach(c => {
       const key = c.nm_taller || 'Sin Taller'
       if (!map[key]) map[key] = {
         taller: key, total: 0, activos: 0, cerrados: 0,
