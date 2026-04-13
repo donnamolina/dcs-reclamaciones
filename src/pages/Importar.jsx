@@ -287,7 +287,7 @@ export default function Importar({ onImportComplete }) {
             {result.errors > 0 && <span style={{ color: '#B91C1C' }}><strong>{result.errors}</strong> errores</span>}
             {result.keepMode && (
               <span style={{ color: '#6B7280' }}>
-                Dedup: {result.keepMode === 'first' ? 'primer registro' : 'último registro'}
+                Duplicados: conservó {result.keepMode === 'first' ? 'primera fila' : 'última fila'}
               </span>
             )}
           </div>
@@ -412,7 +412,8 @@ export default function Importar({ onImportComplete }) {
                     {duplicates.length} valor{duplicates.length !== 1 ? 'es' : ''} de NO_RECLAMACION duplicado{duplicates.length !== 1 ? 's' : ''} en el archivo
                   </p>
                   <p className="text-xs mt-1" style={{ color: '#A16207' }}>
-                    Elige qué registro conservar cuando un mismo número de reclamación aparece más de una vez.
+                    El mismo número de reclamación aparece en más de una fila del archivo.
+                    Para el archivo fusionado SIRWEB + Estado de Cuenta, <strong>usa "Conservar última fila"</strong> — la última tiene los datos de pago más completos.
                   </p>
 
                   {/* Scrollable list */}
@@ -425,7 +426,7 @@ export default function Importar({ onImportComplete }) {
                   {/* Resolution buttons */}
                   <div className="flex flex-wrap gap-3 mt-4">
                     <button
-                      onClick={() => !importing && handleImport('first')}
+                      onClick={() => !importing && handleImport('last')}
                       disabled={importing}
                       className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-opacity disabled:opacity-50"
                       style={{ background: '#003DA5', color: 'white' }}
@@ -437,14 +438,14 @@ export default function Importar({ onImportComplete }) {
                         </svg>
                       ) : (
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 11l7-7 7 7M5 19l7-7 7 7" />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 13l-7 7-7-7M19 5l-7 7-7-7" />
                         </svg>
                       )}
-                      Mantener primer registro
+                      ✅ Conservar última fila <span className="opacity-70 font-normal">(recomendado)</span>
                     </button>
 
                     <button
-                      onClick={() => !importing && handleImport('last')}
+                      onClick={() => !importing && handleImport('first')}
                       disabled={importing}
                       className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-opacity disabled:opacity-50"
                       style={{ background: '#1E293B', color: 'white' }}
@@ -456,10 +457,10 @@ export default function Importar({ onImportComplete }) {
                         </svg>
                       ) : (
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 13l-7 7-7-7M19 5l-7 7-7-7" />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 11l7-7 7 7M5 19l7-7 7 7" />
                         </svg>
                       )}
-                      Mantener último registro
+                      Conservar primera fila
                     </button>
 
                     <button
