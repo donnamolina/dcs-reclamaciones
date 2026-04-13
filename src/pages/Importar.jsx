@@ -218,7 +218,7 @@ export default function Importar({ onImportComplete }) {
         <div>
           <h2 className="text-xl font-bold" style={{ color: '#1E293B' }}>Importar Datos</h2>
           <p className="text-sm mt-0.5" style={{ color: '#64748B' }}>
-            Carga el archivo Excel fusionado (SIRWEB + Estado de Cuenta)
+            Carga el archivo Excel con datos de reclamaciones
           </p>
         </div>
         <button
@@ -413,7 +413,7 @@ export default function Importar({ onImportComplete }) {
                   </p>
                   <p className="text-xs mt-1" style={{ color: '#A16207' }}>
                     El mismo número de reclamación aparece en más de una fila del archivo.
-                    Para el archivo fusionado SIRWEB + Estado de Cuenta, <strong>usa "Conservar última fila"</strong> — la última tiene los datos de pago más completos.
+                    Elige cuál de las dos filas conservar — normalmente la última tiene los datos más completos.
                   </p>
 
                   {/* Scrollable list */}
