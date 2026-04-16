@@ -10,9 +10,26 @@ import FilterBar from '../components/FilterBar/FilterBar'
 import { useFilters, applyFilters } from '../context/FilterContext'
 import { getSemaforo } from '../lib/semaforo'
 import { exportToExcel } from '../lib/exportExcel'
+import { LIFECYCLE_CLOSED } from '../lib/constants'
 
 const PAGE_SIZE = 50
 const APPLICABLE = { monto: false }
+
+const CLOSED_LABELS = new Set([
+  ...LIFECYCLE_CLOSED,
+  'SINIESTRO CERRADO', 'SINIESTRO DECLINADO',
+])
+
+function isClosed(c) {
+  return CLOSED_LABELS.has(c.de_estatus) || c.cd_estatus === 5 || c.cd_estatus === 6
+}
+
+function calcDias(fe_declaracion) {
+  if (!fe_declaracion) return null
+  const decl = new Date(fe_declaracion)
+  if (isNaN(decl)) return null
+  return Math.floor((Date.now() - decl.getTime()) / 86400000)
+}
 
 function uniq(arr) { return [...new Set(arr.filter(Boolean))].sort() }
 
@@ -51,6 +68,7 @@ export default function Detalle({ data, loading, refresh }) {
   const [selected, setSelected]             = useState(null)
   const [showForm, setShowForm]             = useState(false)
   const [showPaymentOnly, setShowPaymentOnly] = useState(false)
+  const [hideCerrados, setHideCerrados]     = useState(true)
 
   useEffect(() => {
     const params = new URLSearchParams(location.search)
@@ -68,12 +86,13 @@ export default function Detalle({ data, loading, refresh }) {
   // Apply global filters first
   const globalFiltered = useMemo(() => applyFilters(data, filters, APPLICABLE), [data, filters])
   // Hide payment-only rows by default; show them only when the toggle is on
-  const baseData = useMemo(
-    () => showPaymentOnly
+  const baseData = useMemo(() => {
+    let rows = showPaymentOnly
       ? globalFiltered.filter(c => c.fuente === 'DP_DPA_SHEETS')
-      : globalFiltered.filter(c => c.fuente !== 'DP_DPA_SHEETS'),
-    [globalFiltered, showPaymentOnly]
-  )
+      : globalFiltered.filter(c => c.fuente !== 'DP_DPA_SHEETS')
+    if (hideCerrados) rows = rows.filter(c => !isClosed(c))
+    return rows
+  }, [globalFiltered, showPaymentOnly, hideCerrados])
 
   const options = useMemo(() => ({
     peritos:     uniq(baseData.map(c => c.perito || 'Sin Asignar')),
@@ -150,6 +169,11 @@ export default function Detalle({ data, loading, refresh }) {
 
   const hasLocal = search || filterPeritos.length || filterTallers.length || filterProductores.length || filterSems.length
 
+  const totalEstimado = useMemo(
+    () => filtered.reduce((sum, c) => sum + (Number(c.mt_estimado_total) || 0), 0),
+    [filtered]
+  )
+
   const SortIcon = ({ col }) => {
     if (sortKey !== col || !sortDir) return <span className="ml-1 opacity-20">↕</span>
     return <span className="ml-1">{sortDir === 'asc' ? '↑' : '↓'}</span>
@@ -206,6 +230,21 @@ export default function Detalle({ data, loading, refresh }) {
                 d="M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 013 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 00-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 01-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 003 15h-.75M15 10.5a3 3 0 11-6 0 3 3 0 016 0zm3 0h.008v.008H18V10.5zm-12 0h.008v.008H6V10.5z" />
             </svg>
             {showPaymentOnly ? 'Ocultar solo pago' : 'Solo pago'}
+          </button>
+          <button
+            onClick={() => { setHideCerrados(v => !v); setPage(1) }}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+            style={{
+              background: hideCerrados ? '#FEF2F2' : '#F1F5F9',
+              color: hideCerrados ? '#B91C1C' : '#475569',
+              border: hideCerrados ? '1px solid #FECACA' : '1px solid transparent',
+            }}
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
+            </svg>
+            {hideCerrados ? 'Cerrados ocultos' : 'Mostrar cerrados'}
           </button>
           <button
             onClick={() => exportToExcel(filtered, data)}
@@ -409,7 +448,7 @@ export default function Detalle({ data, loading, refresh }) {
                     {formatDate(c.fe_declaracion)}
                   </td>
                   <td className="px-4 py-3 text-center" style={{ color: '#334155' }}>
-                    {c.dias_transcurridos ?? '—'}
+                    {calcDias(c.fe_declaracion) ?? '—'}
                   </td>
                   <td className="px-4 py-3 text-center">
                     <SemaforoTag claim={c} dotOnly />
@@ -427,6 +466,17 @@ export default function Detalle({ data, loading, refresh }) {
                 </tr>
               ))}
             </tbody>
+            <tfoot>
+              <tr style={{ background: '#F8FAFC', borderTop: '2px solid #E2E8F0' }}>
+                <td colSpan={10} className="px-4 py-2.5 text-xs font-semibold text-right" style={{ color: '#64748B' }}>
+                  Total estimado ({filtered.length} reclamos):
+                </td>
+                <td className="px-4 py-2.5 text-right whitespace-nowrap text-xs font-bold" style={{ color: '#003DA5' }}>
+                  {fmtMoney(totalEstimado)}
+                </td>
+                <td />
+              </tr>
+            </tfoot>
           </table>
         </div>
 
