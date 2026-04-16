@@ -60,12 +60,15 @@ export default function Detalle({ data, loading, refresh }) {
   const [filterTallers, setFilterTallers]   = useState([])
   const [filterProductores, setFilterProductores] = useState([])
   const [filterSems, setFilterSems]         = useState([])
+  const [filterTipos, setFilterTipos]       = useState([])
   const [peritoSearch, setPeritoSearch]     = useState('')
   const [peritoOpen, setPeritoOpen]         = useState(false)
   const [tallerSearch, setTallerSearch]     = useState('')
   const [tallerOpen, setTallerOpen]         = useState(false)
   const [productorSearch, setProductorSearch] = useState('')
   const [productorOpen, setProductorOpen]   = useState(false)
+  const [tipoSearch, setTipoSearch]         = useState('')
+  const [tipoOpen, setTipoOpen]             = useState(false)
   const [sortKey, setSortKey]               = useState('fe_declaracion')
   const [sortDir, setSortDir]               = useState('desc')  // 'asc' | 'desc' | null
   const [page, setPage]                     = useState(1)
@@ -102,6 +105,7 @@ export default function Detalle({ data, loading, refresh }) {
     peritos:     uniq(baseData.map(c => c.perito || 'Sin Asignar')),
     talleres:    uniq(baseData.map(c => c.nm_taller || 'Sin Taller')),
     productores: uniq(baseData.map(c => c.productor || 'Sin Productor')),
+    tipos:       uniq(baseData.map(c => c.fuente === 'DP_DPA_SHEETS' ? 'DPA' : (c.tipo_reclamo_nuevo || c.tipo_reclamo)).filter(Boolean)),
   }), [baseData])
 
   const filteredPeritoOptions = useMemo(() =>
@@ -118,6 +122,11 @@ export default function Detalle({ data, loading, refresh }) {
     options.productores.filter(p =>
       p.toLowerCase().includes(productorSearch.toLowerCase()) && !filterProductores.includes(p)
     ), [options.productores, productorSearch, filterProductores])
+
+  const filteredTipoOptions = useMemo(() =>
+    options.tipos.filter(t =>
+      t.toLowerCase().includes(tipoSearch.toLowerCase()) && !filterTipos.includes(t)
+    ), [options.tipos, tipoSearch, filterTipos])
 
   const filtered = useMemo(() => {
     let rows = baseData
@@ -147,8 +156,14 @@ export default function Detalle({ data, loading, refresh }) {
         return s && filterSems.includes(s?.key)
       })
     }
+    if (filterTipos.length) {
+      rows = rows.filter(c => {
+        const tipo = c.fuente === 'DP_DPA_SHEETS' ? 'DPA' : (c.tipo_reclamo_nuevo || c.tipo_reclamo)
+        return filterTipos.includes(tipo)
+      })
+    }
     return rows
-  }, [baseData, search, filterPeritos, filterTallers, filterProductores, filterSems])
+  }, [baseData, search, filterPeritos, filterTallers, filterProductores, filterSems, filterTipos])
 
   const sorted = useMemo(() => {
     if (!sortKey || !sortDir) return filtered
@@ -175,12 +190,12 @@ export default function Detalle({ data, loading, refresh }) {
 
   function clearLocal() {
     setSearch('')
-    setFilterPeritos([]); setFilterTallers([]); setFilterProductores([]); setFilterSems([])
-    setPeritoSearch(''); setTallerSearch(''); setProductorSearch('')
+    setFilterPeritos([]); setFilterTallers([]); setFilterProductores([]); setFilterSems([]); setFilterTipos([])
+    setPeritoSearch(''); setTallerSearch(''); setProductorSearch(''); setTipoSearch('')
     setPage(1)
   }
 
-  const hasLocal = search || filterPeritos.length || filterTallers.length || filterProductores.length || filterSems.length
+  const hasLocal = search || filterPeritos.length || filterTallers.length || filterProductores.length || filterSems.length || filterTipos.length
 
   const totalEstimado = useMemo(
     () => filtered.reduce((sum, c) => sum + (Number(c.mt_estimado_total) || 0), 0),
@@ -302,8 +317,8 @@ export default function Detalle({ data, loading, refresh }) {
           )}
         </div>
 
-        {/* Row 2: Perito | Taller | Productor — 3 searchable comboboxes */}
-        <div className="grid grid-cols-3 gap-3">
+        {/* Row 2: Perito | Taller | Productor | Tipo — 4 searchable comboboxes */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           {/* Perito */}
           <div>
             <p className="text-xs font-semibold mb-1.5" style={{ color: '#94A3B8' }}>PERITO</p>
@@ -414,6 +429,45 @@ export default function Detalle({ data, loading, refresh }) {
                       className="w-full text-left px-3 py-2 text-xs hover:bg-blue-50 transition-colors"
                       style={{ color: '#334155' }}>
                       {p}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Tipo */}
+          <div>
+            <p className="text-xs font-semibold mb-1.5" style={{ color: '#94A3B8' }}>TIPO</p>
+            {filterTipos.length > 0 && (
+              <div className="flex flex-wrap gap-1 mb-1.5">
+                {filterTipos.map(t => (
+                  <button key={t} onClick={() => toggleChip(setFilterTipos, t)}
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium"
+                    style={{ background: '#003DA5', color: 'white' }}>
+                    {t.length > 18 ? t.slice(0, 18) + '…' : t} ×
+                  </button>
+                ))}
+              </div>
+            )}
+            <div className="relative">
+              <input
+                value={tipoSearch}
+                onChange={e => { setTipoSearch(e.target.value); setTipoOpen(true) }}
+                onFocus={() => setTipoOpen(true)}
+                onBlur={() => setTimeout(() => setTipoOpen(false), 150)}
+                placeholder="Buscar tipo..."
+                className="w-full pl-3 pr-3 py-1.5 text-xs rounded-lg border outline-none"
+                style={{ borderColor: '#E2E8F0', color: '#334155' }}
+              />
+              {tipoOpen && filteredTipoOptions.length > 0 && (
+                <div className="absolute z-20 mt-1 w-full bg-white rounded-lg border overflow-y-auto"
+                  style={{ borderColor: '#E2E8F0', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', maxHeight: 200 }}>
+                  {filteredTipoOptions.slice(0, 30).map(t => (
+                    <button key={t} onMouseDown={() => { toggleChip(setFilterTipos, t); setTipoSearch('') }}
+                      className="w-full text-left px-3 py-2 text-xs hover:bg-blue-50 transition-colors"
+                      style={{ color: '#334155' }}>
+                      {t}
                     </button>
                   ))}
                 </div>
