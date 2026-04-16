@@ -10,7 +10,6 @@ import PorTaller from './pages/PorTaller'
 import Detalle from './pages/Detalle'
 import Importar from './pages/Importar'
 import KPIs from './pages/KPIs'
-import CuentasPendientes from './pages/CuentasPendientes'
 import EstadoDeCuenta from './pages/EstadoDeCuenta'
 
 function App() {
@@ -25,50 +24,55 @@ function App() {
 
   return (
     <BrowserRouter>
-      <FilterProvider>
-        <Routes>
-          <Route path="/" element={
+      <Routes>
+        <Route path="/" element={
+          <FilterProvider>
             <Layout onLogout={logout} lastUpdated={lastUpdated} onRefresh={refresh} loading={loading}>
               <Resumen {...sharedProps} />
             </Layout>
-          } />
-          <Route path="/perito" element={
+          </FilterProvider>
+        } />
+        <Route path="/perito" element={
+          <FilterProvider>
             <Layout onLogout={logout} lastUpdated={lastUpdated} onRefresh={refresh} loading={loading}>
               <PorPerito {...sharedProps} />
             </Layout>
-          } />
-          <Route path="/taller" element={
+          </FilterProvider>
+        } />
+        <Route path="/taller" element={
+          <FilterProvider>
             <Layout onLogout={logout} lastUpdated={lastUpdated} onRefresh={refresh} loading={loading}>
               <PorTaller {...sharedProps} />
             </Layout>
-          } />
-          <Route path="/detalle" element={
+          </FilterProvider>
+        } />
+        <Route path="/detalle" element={
+          <FilterProvider>
             <Layout onLogout={logout} lastUpdated={lastUpdated} onRefresh={refresh} loading={loading}>
               <Detalle {...sharedProps} />
             </Layout>
-          } />
-          <Route path="/kpis" element={
+          </FilterProvider>
+        } />
+        <Route path="/kpis" element={
+          <FilterProvider>
             <Layout onLogout={logout} lastUpdated={lastUpdated} onRefresh={refresh} loading={loading}>
               <KPIs {...sharedProps} />
             </Layout>
-          } />
-          <Route path="/cuentas" element={
-            <Layout onLogout={logout} lastUpdated={lastUpdated} onRefresh={refresh} loading={loading}>
-              <CuentasPendientes {...sharedProps} />
-            </Layout>
-          } />
-          <Route path="/estado-cuenta" element={
+          </FilterProvider>
+        } />
+        <Route path="/estado-cuenta" element={
+          <FilterProvider>
             <Layout onLogout={logout} lastUpdated={lastUpdated} onRefresh={refresh} loading={loading}>
               <EstadoDeCuenta {...sharedProps} />
             </Layout>
-          } />
-          <Route path="/importar" element={
-            <Layout onLogout={logout} lastUpdated={lastUpdated} onRefresh={refresh} loading={loading}>
-              <Importar onImportComplete={refresh} />
-            </Layout>
-          } />
-        </Routes>
-      </FilterProvider>
+          </FilterProvider>
+        } />
+        <Route path="/importar" element={
+          <Layout onLogout={logout} lastUpdated={lastUpdated} onRefresh={refresh} loading={loading}>
+            <Importar onImportComplete={refresh} />
+          </Layout>
+        } />
+      </Routes>
     </BrowserRouter>
   )
 }
