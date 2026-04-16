@@ -110,14 +110,15 @@ export default function SlidePanel({ claim, onClose, onEditSaved, existingData =
               Datos del Reclamante
             </h3>
             <dl className="grid grid-cols-2 gap-3">
-              <Field label="Reclamante"  value={claim.nombre_reclamante} />
-              <Field label="Asegurado"   value={claim.nombre_asegurado} />
-              <Field label="Póliza"      value={claim.nu_poliza} />
-              <Field label="Certificado" value={claim.nu_certificado} />
-              <Field label="Teléfono"    value={claim.nu_telefono} />
-              <Field label="Email"       value={claim.de_email} />
-              <Field label="Sucursal"    value={claim.de_sucursal} />
-              <Field label="Productor"   value={claim.productor} />
+              <Field label="Reclamante"        value={claim.nombre_reclamante} />
+              <Field label="Asegurado"         value={claim.nombre_asegurado} />
+              <Field label="Beneficiario Pago" value={claim.beneficiario_pago} />
+              <Field label="Póliza"            value={claim.nu_poliza} />
+              <Field label="Certificado"       value={claim.nu_certificado} />
+              <Field label="Teléfono"          value={claim.nu_telefono} />
+              <Field label="Email"             value={claim.de_email} />
+              <Field label="Sucursal"          value={claim.de_sucursal} />
+              <Field label="Productor"         value={claim.productor} />
             </dl>
           </section>
 
@@ -172,6 +173,21 @@ export default function SlidePanel({ claim, onClose, onEditSaved, existingData =
               <Field label="Monto DPA"        value={formatMoney(claim.monto_dpa)} />
             </dl>
           </section>
+
+          {(claim.monto_por_pagar > 0 || claim.tipo_pago || claim.dias_vencimiento_pago != null) && (
+            <section>
+              <h3 className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: '#DC2626' }}>
+                Pago Pendiente
+              </h3>
+              <dl className="grid grid-cols-2 gap-3">
+                <Field label="Monto por Pagar"  value={claim.monto_por_pagar ? formatMoney(claim.monto_por_pagar) : null} />
+                <Field label="Tipo de Pago"     value={claim.tipo_pago} />
+                <Field label="Días Vencimiento" value={claim.dias_vencimiento_pago != null ? `${claim.dias_vencimiento_pago} días` : null} />
+                <Field label="Estatus Pago"     value={claim.estatus_pago} />
+                <Field label="Zona"             value={claim.zona} />
+              </dl>
+            </section>
+          )}
         </div>
       </div>
 
