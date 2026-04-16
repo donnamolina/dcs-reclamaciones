@@ -31,6 +31,12 @@ function calcDias(fe_declaracion) {
   return Math.floor((Date.now() - decl.getTime()) / 86400000)
 }
 
+// Always use live dias so semáforo reflects today, not the stale DB value
+function withLiveDias(c) {
+  const live = calcDias(c.fe_declaracion)
+  return live != null ? { ...c, dias_transcurridos: live } : c
+}
+
 function uniq(arr) { return [...new Set(arr.filter(Boolean))].sort() }
 
 function normalizeTipo(c) {
@@ -164,7 +170,7 @@ export default function Detalle({ data, loading, refresh }) {
     }
     if (filterSems.length) {
       rows = rows.filter(c => {
-        const s = getSemaforo(c)
+        const s = getSemaforo(withLiveDias(c))
         if (filterSems.includes('ninguno')) return !s || filterSems.includes(s?.key)
         return s && filterSems.includes(s?.key)
       })
@@ -575,7 +581,7 @@ export default function Detalle({ data, loading, refresh }) {
                     {calcDias(c.fe_declaracion) ?? '—'}
                   </td>
                   <td className="px-4 py-3 text-center">
-                    <SemaforoTag claim={c} dotOnly />
+                    <SemaforoTag claim={withLiveDias(c)} dotOnly />
                   </td>
                   <td className="px-4 py-3 text-right whitespace-nowrap text-xs" style={{ color: '#475569' }}>
                     {c.mt_estimado_total ? fmtMoney(c.mt_estimado_total) : '—'}
