@@ -1,5 +1,7 @@
 import { useMemo, useState } from 'react'
 import KPICard from '../components/ui/KPICard'
+import SlidePanel from '../components/ui/SlidePanel'
+import { supabase } from '../lib/supabase'
 
 const TIPO_PAGO_ORDER = [
   'DPA', 'TALLER', 'SUPLIDOR', 'CRISTAL', 'LIQUIDACION',
@@ -27,11 +29,60 @@ function SemaforoPago({ dias }) {
   return <span className="px-2 py-0.5 rounded-full text-xs font-semibold" style={{ background: '#FEF2F2', color: '#B91C1C' }}>{d}d venc.</span>
 }
 
-export default function EstadoDeCuenta({ data, loading }) {
+const EMPTY_PAYMENT = {
+  nu_reclamo: '', beneficiario_pago: '', tipo_pago: '',
+  monto_por_pagar: '', zona: '', dias_vencimiento_pago: '', estatus_pago: '',
+}
+
+export default function EstadoDeCuenta({ data, loading, refresh }) {
   const [search, setSearch]     = useState('')
   const [zonaFilt, setZonaFilt] = useState('Todas')
   const [tipoFilt, setTipoFilt] = useState('Todos')
   const [sort, setSort]         = useState({ col: 'dias_vencimiento_pago', dir: 'desc' })
+
+  const [selected, setSelected]   = useState(null)
+  const [showAdd, setShowAdd]     = useState(false)
+  const [payForm, setPayForm]     = useState(EMPTY_PAYMENT)
+  const [paySaving, setPaySaving] = useState(false)
+  const [payError, setPayError]   = useState(null)
+  const [payMsg, setPayMsg]       = useState(null)
+
+  const claimLookup = useMemo(() => {
+    const m = {}
+    data.forEach(r => { if (r.nu_reclamo) m[String(r.nu_reclamo).trim()] = r })
+    return m
+  }, [data])
+
+  async function handleAddPayment() {
+    setPayError(null)
+    const id = String(payForm.nu_reclamo).trim()
+    if (!id) { setPayError('El número de reclamación es requerido'); return }
+    if (!claimLookup[id]) { setPayError(`No se encontró la reclamación "${id}"`); return }
+    if (!payForm.monto_por_pagar || isNaN(Number(payForm.monto_por_pagar))) {
+      setPayError('El monto debe ser un número válido'); return
+    }
+    setPaySaving(true)
+    const { error } = await supabase
+      .from('recl_reclamaciones')
+      .update({
+        beneficiario_pago:    payForm.beneficiario_pago.trim() || null,
+        tipo_pago:            payForm.tipo_pago.trim() || null,
+        monto_por_pagar:      Number(payForm.monto_por_pagar),
+        zona:                 payForm.zona.trim() || null,
+        dias_vencimiento_pago: payForm.dias_vencimiento_pago !== '' ? Number(payForm.dias_vencimiento_pago) : null,
+        estatus_pago:         payForm.estatus_pago.trim() || null,
+      })
+      .eq('nu_reclamo', id)
+    setPaySaving(false)
+    if (error) { setPayError(error.message); return }
+    setShowAdd(false)
+    setPayForm(EMPTY_PAYMENT)
+    setPayMsg('Pago agregado correctamente')
+    setTimeout(() => setPayMsg(null), 3000)
+    if (refresh) refresh()
+  }
+
+  const matchedClaim = claimLookup[String(payForm.nu_reclamo).trim()]
 
   const pending = useMemo(
     () => data.filter(r => Number(r.monto_por_pagar) > 0),
@@ -118,11 +169,26 @@ export default function EstadoDeCuenta({ data, loading }) {
 
   return (
     <div className="space-y-4">
-      <div>
-        <h2 className="text-xl font-bold" style={{ color: '#1E293B' }}>Estado de Cuenta</h2>
-        <p className="text-sm mt-0.5" style={{ color: '#64748B' }}>
-          Pagos pendientes por reclamación — fusión SIRWEB + Estado de Cuenta
-        </p>
+      <div className="flex items-start justify-between">
+        <div>
+          <h2 className="text-xl font-bold" style={{ color: '#1E293B' }}>Estado de Cuenta</h2>
+          <p className="text-sm mt-0.5" style={{ color: '#64748B' }}>
+            Pagos pendientes por reclamación — fusión SIRWEB + Estado de Cuenta
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          {payMsg && <span className="text-xs font-medium" style={{ color: '#15803D' }}>{payMsg}</span>}
+          <button
+            onClick={() => { setShowAdd(true); setPayError(null); setPayForm(EMPTY_PAYMENT) }}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-semibold text-white"
+            style={{ background: '#003DA5' }}
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+            </svg>
+            Agregar pago manual
+          </button>
+        </div>
       </div>
 
       {!stats ? (
@@ -289,8 +355,18 @@ export default function EstadoDeCuenta({ data, loading }) {
                       className="border-t"
                       style={{ borderColor: '#F1F5F9' }}
                     >
-                      <td className="px-4 py-2.5 font-mono text-xs font-semibold" style={{ color: '#003DA5' }}>
-                        {r.nu_reclamo}
+                      <td className="px-4 py-2.5 font-mono text-xs font-semibold">
+                        {claimLookup[String(r.nu_reclamo).trim()] ? (
+                          <button
+                            onClick={() => setSelected(claimLookup[String(r.nu_reclamo).trim()])}
+                            className="hover:underline text-left"
+                            style={{ color: '#003DA5' }}
+                          >
+                            {r.nu_reclamo}
+                          </button>
+                        ) : (
+                          <span style={{ color: '#003DA5' }}>{r.nu_reclamo}</span>
+                        )}
                       </td>
                       <td className="px-4 py-2.5 text-xs max-w-40 truncate" style={{ color: '#334155' }}>
                         {r.beneficiario_pago || '—'}
@@ -325,6 +401,144 @@ export default function EstadoDeCuenta({ data, loading }) {
                   ))}
                 </tbody>
               </table>
+            </div>
+          </div>
+        </>
+      )}
+
+      <SlidePanel
+        claim={selected}
+        onClose={() => setSelected(null)}
+        onEditSaved={refresh}
+        existingData={data}
+      />
+
+      {/* Add manual payment modal */}
+      {showAdd && (
+        <>
+          <div className="fixed inset-0 z-40" style={{ background: 'rgba(0,0,0,0.3)' }} onClick={() => setShowAdd(false)} />
+          <div className="fixed z-50 top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-white rounded-2xl p-6 w-96"
+            style={{ boxShadow: '0 20px 40px rgba(0,0,0,0.15)', maxHeight: '90vh', overflowY: 'auto' }}>
+            <h3 className="text-base font-bold mb-1" style={{ color: '#1E293B' }}>Agregar Pago Manual</h3>
+            <p className="text-xs mb-4" style={{ color: '#94A3B8' }}>Debe corresponder a una reclamación existente</p>
+
+            <div className="space-y-3">
+              {/* Claim lookup */}
+              <div>
+                <label className="block text-xs font-medium mb-1" style={{ color: '#64748B' }}>
+                  No. Reclamación <span style={{ color: '#EF4444' }}>*</span>
+                </label>
+                <input
+                  value={payForm.nu_reclamo}
+                  onChange={e => setPayForm(f => ({ ...f, nu_reclamo: e.target.value }))}
+                  placeholder="ej. 1-600-2831"
+                  className="w-full px-3 py-2 text-sm rounded-lg border outline-none"
+                  style={{ borderColor: '#E2E8F0', color: '#334155' }}
+                  autoFocus
+                />
+                {matchedClaim && (
+                  <p className="text-xs mt-1 font-medium" style={{ color: '#15803D' }}>
+                    ✓ {matchedClaim.nombre_reclamante || matchedClaim.nombre_asegurado || 'Reclamación encontrada'}
+                    {matchedClaim.nm_taller ? ` · ${matchedClaim.nm_taller}` : ''}
+                  </p>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium mb-1" style={{ color: '#64748B' }}>Beneficiario</label>
+                <input
+                  value={payForm.beneficiario_pago}
+                  onChange={e => setPayForm(f => ({ ...f, beneficiario_pago: e.target.value }))}
+                  placeholder="Nombre del beneficiario"
+                  className="w-full px-3 py-2 text-sm rounded-lg border outline-none"
+                  style={{ borderColor: '#E2E8F0', color: '#334155' }}
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium mb-1" style={{ color: '#64748B' }}>Tipo de Pago</label>
+                  <select
+                    value={payForm.tipo_pago}
+                    onChange={e => setPayForm(f => ({ ...f, tipo_pago: e.target.value }))}
+                    className="w-full px-3 py-2 text-sm rounded-lg border outline-none"
+                    style={{ borderColor: '#E2E8F0', color: '#334155' }}
+                  >
+                    <option value="">— Seleccionar —</option>
+                    {['DPA','TALLER','SUPLIDOR','CRISTAL','LIQUIDACION','RENT A CAR','ASEGURADO','DPA/HONORARIOS','FACTORING'].map(t => (
+                      <option key={t} value={t}>{t}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium mb-1" style={{ color: '#64748B' }}>
+                    Monto por Pagar <span style={{ color: '#EF4444' }}>*</span>
+                  </label>
+                  <input
+                    type="number"
+                    value={payForm.monto_por_pagar}
+                    onChange={e => setPayForm(f => ({ ...f, monto_por_pagar: e.target.value }))}
+                    placeholder="0.00"
+                    className="w-full px-3 py-2 text-sm rounded-lg border outline-none"
+                    style={{ borderColor: '#E2E8F0', color: '#334155' }}
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium mb-1" style={{ color: '#64748B' }}>Zona</label>
+                  <select
+                    value={payForm.zona}
+                    onChange={e => setPayForm(f => ({ ...f, zona: e.target.value }))}
+                    className="w-full px-3 py-2 text-sm rounded-lg border outline-none"
+                    style={{ borderColor: '#E2E8F0', color: '#334155' }}
+                  >
+                    <option value="">— Seleccionar —</option>
+                    <option value="NORTE">NORTE</option>
+                    <option value="SD-ESTE">SD-ESTE</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium mb-1" style={{ color: '#64748B' }}>Días Vencimiento</label>
+                  <input
+                    type="number"
+                    value={payForm.dias_vencimiento_pago}
+                    onChange={e => setPayForm(f => ({ ...f, dias_vencimiento_pago: e.target.value }))}
+                    placeholder="0"
+                    className="w-full px-3 py-2 text-sm rounded-lg border outline-none"
+                    style={{ borderColor: '#E2E8F0', color: '#334155' }}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium mb-1" style={{ color: '#64748B' }}>Estatus Pago</label>
+                <input
+                  value={payForm.estatus_pago}
+                  onChange={e => setPayForm(f => ({ ...f, estatus_pago: e.target.value }))}
+                  placeholder="ej. Pendiente, Procesado"
+                  className="w-full px-3 py-2 text-sm rounded-lg border outline-none"
+                  style={{ borderColor: '#E2E8F0', color: '#334155' }}
+                />
+              </div>
+            </div>
+
+            {payError && (
+              <p className="text-xs mt-3 p-2 rounded-lg" style={{ background: '#FEF2F2', color: '#B91C1C' }}>{payError}</p>
+            )}
+
+            <div className="flex gap-2 mt-5">
+              <button onClick={() => setShowAdd(false)}
+                className="flex-1 py-2 rounded-lg text-sm font-semibold border"
+                style={{ borderColor: '#E2E8F0', color: '#64748B' }}>
+                Cancelar
+              </button>
+              <button onClick={handleAddPayment} disabled={paySaving}
+                className="flex-1 py-2 rounded-lg text-sm font-semibold text-white"
+                style={{ background: paySaving ? '#94A3B8' : '#003DA5' }}>
+                {paySaving ? 'Guardando…' : 'Guardar pago'}
+              </button>
             </div>
           </div>
         </>

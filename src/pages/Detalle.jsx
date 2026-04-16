@@ -41,6 +41,7 @@ export default function Detalle({ data, loading, refresh }) {
   const [search, setSearch]                 = useState('')
   const [filterPerito, setFilterPerito]     = useState('')
   const [filterTaller, setFilterTaller]     = useState('')
+  const [filterProductor, setFilterProductor] = useState('')
   const [filterSem, setFilterSem]           = useState('')
   const [sortKey, setSortKey]               = useState('fe_declaracion')
   const [sortDir, setSortDir]               = useState('desc')
@@ -68,8 +69,9 @@ export default function Detalle({ data, loading, refresh }) {
   )
 
   const options = useMemo(() => ({
-    peritos:   uniq(baseData.map(c => c.perito || 'Sin Asignar')),
-    talleres:  uniq(baseData.map(c => c.nm_taller || 'Sin Taller')),
+    peritos:    uniq(baseData.map(c => c.perito || 'Sin Asignar')),
+    talleres:   uniq(baseData.map(c => c.nm_taller || 'Sin Taller')),
+    productores: uniq(baseData.map(c => c.productor || 'Sin Productor')),
   }), [baseData])
 
   const filtered = useMemo(() => {
@@ -89,6 +91,9 @@ export default function Detalle({ data, loading, refresh }) {
     }
     if (filterTaller) {
       rows = rows.filter(c => filterTaller === 'Sin Taller' ? !c.nm_taller : c.nm_taller === filterTaller)
+    }
+    if (filterProductor) {
+      rows = rows.filter(c => filterProductor === 'Sin Productor' ? !c.productor : c.productor === filterProductor)
     }
     if (filterSem) {
       rows = rows.filter(c => {
@@ -121,10 +126,10 @@ export default function Detalle({ data, loading, refresh }) {
   }
 
   function clearLocal() {
-    setSearch(''); setFilterPerito(''); setFilterTaller(''); setFilterSem(''); setPage(1)
+    setSearch(''); setFilterPerito(''); setFilterTaller(''); setFilterProductor(''); setFilterSem(''); setPage(1)
   }
 
-  const hasLocal = search || filterPerito || filterTaller || filterSem
+  const hasLocal = search || filterPerito || filterTaller || filterProductor || filterSem
 
   const SortIcon = ({ col }) => {
     if (sortKey !== col) return <span className="ml-1 opacity-20">↕</span>
@@ -202,7 +207,7 @@ export default function Detalle({ data, loading, refresh }) {
 
       {/* Local quick filters */}
       <div className="bg-white rounded-xl p-4" style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
           <div className="col-span-2 relative">
             <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4" style={{ color: '#94A3B8' }}
               fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -228,6 +233,12 @@ export default function Detalle({ data, loading, refresh }) {
             className="py-2 px-3 text-sm rounded-lg border outline-none" style={{ borderColor: '#E2E8F0', color: '#334155' }}>
             <option value="">Todos los Talleres</option>
             {options.talleres.map(t => <option key={t} value={t}>{t}</option>)}
+          </select>
+
+          <select value={filterProductor} onChange={e => { setFilterProductor(e.target.value); setPage(1) }}
+            className="py-2 px-3 text-sm rounded-lg border outline-none" style={{ borderColor: '#E2E8F0', color: '#334155' }}>
+            <option value="">Todos los Productores</option>
+            {options.productores.map(p => <option key={p} value={p}>{p}</option>)}
           </select>
 
           <select value={filterSem} onChange={e => { setFilterSem(e.target.value); setPage(1) }}
