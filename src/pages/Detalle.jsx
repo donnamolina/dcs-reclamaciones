@@ -60,6 +60,10 @@ export default function Detalle({ data, loading, refresh }) {
   const [filterTallers, setFilterTallers]   = useState([])
   const [filterProductores, setFilterProductores] = useState([])
   const [filterSems, setFilterSems]         = useState([])
+  const [peritoSearch, setPeritoSearch]     = useState('')
+  const [peritoOpen, setPeritoOpen]         = useState(false)
+  const [tallerSearch, setTallerSearch]     = useState('')
+  const [tallerOpen, setTallerOpen]         = useState(false)
   const [productorSearch, setProductorSearch] = useState('')
   const [productorOpen, setProductorOpen]   = useState(false)
   const [sortKey, setSortKey]               = useState('fe_declaracion')
@@ -100,10 +104,19 @@ export default function Detalle({ data, loading, refresh }) {
     productores: uniq(baseData.map(c => c.productor || 'Sin Productor')),
   }), [baseData])
 
+  const filteredPeritoOptions = useMemo(() =>
+    options.peritos.filter(p =>
+      p.toLowerCase().includes(peritoSearch.toLowerCase()) && !filterPeritos.includes(p)
+    ), [options.peritos, peritoSearch, filterPeritos])
+
+  const filteredTallerOptions = useMemo(() =>
+    options.talleres.filter(t =>
+      t.toLowerCase().includes(tallerSearch.toLowerCase()) && !filterTallers.includes(t)
+    ), [options.talleres, tallerSearch, filterTallers])
+
   const filteredProductorOptions = useMemo(() =>
     options.productores.filter(p =>
-      p.toLowerCase().includes(productorSearch.toLowerCase()) &&
-      !filterProductores.includes(p)
+      p.toLowerCase().includes(productorSearch.toLowerCase()) && !filterProductores.includes(p)
     ), [options.productores, productorSearch, filterProductores])
 
   const filtered = useMemo(() => {
@@ -163,7 +176,7 @@ export default function Detalle({ data, loading, refresh }) {
   function clearLocal() {
     setSearch('')
     setFilterPeritos([]); setFilterTallers([]); setFilterProductores([]); setFilterSems([])
-    setProductorSearch('')
+    setPeritoSearch(''); setTallerSearch(''); setProductorSearch('')
     setPage(1)
   }
 
@@ -289,78 +302,123 @@ export default function Detalle({ data, loading, refresh }) {
           )}
         </div>
 
-        {/* Row 2: Perito multi-select */}
-        <div>
-          <p className="text-xs font-semibold mb-1.5" style={{ color: '#94A3B8' }}>PERITO</p>
-          <div className="flex flex-wrap gap-1.5">
-            {options.peritos.map(p => (
-              <button key={p} onClick={() => toggleChip(setFilterPeritos, p)}
-                className="px-2.5 py-1 rounded-full text-xs font-medium border transition-all"
-                style={{
-                  background: filterPeritos.includes(p) ? '#003DA5' : '#F8FAFC',
-                  color: filterPeritos.includes(p) ? 'white' : '#475569',
-                  borderColor: filterPeritos.includes(p) ? '#003DA5' : '#E2E8F0',
-                }}>
-                {p}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Row 3: Taller multi-select */}
-        <div>
-          <p className="text-xs font-semibold mb-1.5" style={{ color: '#94A3B8' }}>TALLER</p>
-          <div className="flex flex-wrap gap-1.5">
-            {options.talleres.map(t => (
-              <button key={t} onClick={() => toggleChip(setFilterTallers, t)}
-                className="px-2.5 py-1 rounded-full text-xs font-medium border transition-all"
-                style={{
-                  background: filterTallers.includes(t) ? '#003DA5' : '#F8FAFC',
-                  color: filterTallers.includes(t) ? 'white' : '#475569',
-                  borderColor: filterTallers.includes(t) ? '#003DA5' : '#E2E8F0',
-                }}>
-                {t.length > 28 ? t.slice(0, 28) + '…' : t}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Row 4: Productor — searchable */}
-        <div>
-          <p className="text-xs font-semibold mb-1.5" style={{ color: '#94A3B8' }}>PRODUCTOR</p>
-          {filterProductores.length > 0 && (
-            <div className="flex flex-wrap gap-1.5 mb-2">
-              {filterProductores.map(p => (
-                <button key={p} onClick={() => toggleChip(setFilterProductores, p)}
-                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium"
-                  style={{ background: '#003DA5', color: 'white' }}>
-                  {p} ×
-                </button>
-              ))}
-            </div>
-          )}
-          <div className="relative" style={{ maxWidth: 320 }}>
-            <input
-              value={productorSearch}
-              onChange={e => { setProductorSearch(e.target.value); setProductorOpen(true) }}
-              onFocus={() => setProductorOpen(true)}
-              onBlur={() => setTimeout(() => setProductorOpen(false), 150)}
-              placeholder="Buscar productor..."
-              className="w-full pl-3 pr-3 py-1.5 text-xs rounded-lg border outline-none"
-              style={{ borderColor: '#E2E8F0', color: '#334155' }}
-            />
-            {productorOpen && filteredProductorOptions.length > 0 && (
-              <div className="absolute z-20 mt-1 w-full bg-white rounded-lg border overflow-y-auto"
-                style={{ borderColor: '#E2E8F0', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', maxHeight: 200 }}>
-                {filteredProductorOptions.slice(0, 30).map(p => (
-                  <button key={p} onMouseDown={() => { toggleChip(setFilterProductores, p); setProductorSearch('') }}
-                    className="w-full text-left px-3 py-2 text-xs hover:bg-blue-50 transition-colors"
-                    style={{ color: '#334155' }}>
-                    {p}
+        {/* Row 2: Perito | Taller | Productor — 3 searchable comboboxes */}
+        <div className="grid grid-cols-3 gap-3">
+          {/* Perito */}
+          <div>
+            <p className="text-xs font-semibold mb-1.5" style={{ color: '#94A3B8' }}>PERITO</p>
+            {filterPeritos.length > 0 && (
+              <div className="flex flex-wrap gap-1 mb-1.5">
+                {filterPeritos.map(p => (
+                  <button key={p} onClick={() => toggleChip(setFilterPeritos, p)}
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium"
+                    style={{ background: '#003DA5', color: 'white' }}>
+                    {p.length > 18 ? p.slice(0, 18) + '…' : p} ×
                   </button>
                 ))}
               </div>
             )}
+            <div className="relative">
+              <input
+                value={peritoSearch}
+                onChange={e => { setPeritoSearch(e.target.value); setPeritoOpen(true) }}
+                onFocus={() => setPeritoOpen(true)}
+                onBlur={() => setTimeout(() => setPeritoOpen(false), 150)}
+                placeholder="Buscar perito..."
+                className="w-full pl-3 pr-3 py-1.5 text-xs rounded-lg border outline-none"
+                style={{ borderColor: '#E2E8F0', color: '#334155' }}
+              />
+              {peritoOpen && filteredPeritoOptions.length > 0 && (
+                <div className="absolute z-20 mt-1 w-full bg-white rounded-lg border overflow-y-auto"
+                  style={{ borderColor: '#E2E8F0', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', maxHeight: 200 }}>
+                  {filteredPeritoOptions.slice(0, 30).map(p => (
+                    <button key={p} onMouseDown={() => { toggleChip(setFilterPeritos, p); setPeritoSearch('') }}
+                      className="w-full text-left px-3 py-2 text-xs hover:bg-blue-50 transition-colors"
+                      style={{ color: '#334155' }}>
+                      {p}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Taller */}
+          <div>
+            <p className="text-xs font-semibold mb-1.5" style={{ color: '#94A3B8' }}>TALLER</p>
+            {filterTallers.length > 0 && (
+              <div className="flex flex-wrap gap-1 mb-1.5">
+                {filterTallers.map(t => (
+                  <button key={t} onClick={() => toggleChip(setFilterTallers, t)}
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium"
+                    style={{ background: '#003DA5', color: 'white' }}>
+                    {t.length > 18 ? t.slice(0, 18) + '…' : t} ×
+                  </button>
+                ))}
+              </div>
+            )}
+            <div className="relative">
+              <input
+                value={tallerSearch}
+                onChange={e => { setTallerSearch(e.target.value); setTallerOpen(true) }}
+                onFocus={() => setTallerOpen(true)}
+                onBlur={() => setTimeout(() => setTallerOpen(false), 150)}
+                placeholder="Buscar taller..."
+                className="w-full pl-3 pr-3 py-1.5 text-xs rounded-lg border outline-none"
+                style={{ borderColor: '#E2E8F0', color: '#334155' }}
+              />
+              {tallerOpen && filteredTallerOptions.length > 0 && (
+                <div className="absolute z-20 mt-1 w-full bg-white rounded-lg border overflow-y-auto"
+                  style={{ borderColor: '#E2E8F0', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', maxHeight: 200 }}>
+                  {filteredTallerOptions.slice(0, 30).map(t => (
+                    <button key={t} onMouseDown={() => { toggleChip(setFilterTallers, t); setTallerSearch('') }}
+                      className="w-full text-left px-3 py-2 text-xs hover:bg-blue-50 transition-colors"
+                      style={{ color: '#334155' }}>
+                      {t}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Productor */}
+          <div>
+            <p className="text-xs font-semibold mb-1.5" style={{ color: '#94A3B8' }}>PRODUCTOR</p>
+            {filterProductores.length > 0 && (
+              <div className="flex flex-wrap gap-1 mb-1.5">
+                {filterProductores.map(p => (
+                  <button key={p} onClick={() => toggleChip(setFilterProductores, p)}
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium"
+                    style={{ background: '#003DA5', color: 'white' }}>
+                    {p.length > 18 ? p.slice(0, 18) + '…' : p} ×
+                  </button>
+                ))}
+              </div>
+            )}
+            <div className="relative">
+              <input
+                value={productorSearch}
+                onChange={e => { setProductorSearch(e.target.value); setProductorOpen(true) }}
+                onFocus={() => setProductorOpen(true)}
+                onBlur={() => setTimeout(() => setProductorOpen(false), 150)}
+                placeholder="Buscar productor..."
+                className="w-full pl-3 pr-3 py-1.5 text-xs rounded-lg border outline-none"
+                style={{ borderColor: '#E2E8F0', color: '#334155' }}
+              />
+              {productorOpen && filteredProductorOptions.length > 0 && (
+                <div className="absolute z-20 mt-1 w-full bg-white rounded-lg border overflow-y-auto"
+                  style={{ borderColor: '#E2E8F0', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', maxHeight: 200 }}>
+                  {filteredProductorOptions.slice(0, 30).map(p => (
+                    <button key={p} onMouseDown={() => { toggleChip(setFilterProductores, p); setProductorSearch('') }}
+                      className="w-full text-left px-3 py-2 text-xs hover:bg-blue-50 transition-colors"
+                      style={{ color: '#334155' }}>
+                      {p}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
@@ -442,7 +500,7 @@ export default function Detalle({ data, loading, refresh }) {
                     <LifecycleStatusBadge deEstatus={c.de_estatus} cdEstatus={c.cd_estatus} size="xs" />
                   </td>
                   <td className="px-4 py-3 text-xs whitespace-nowrap" style={{ color: '#64748B' }}>
-                    {c.tipo_reclamo_nuevo || c.tipo_reclamo || '—'}
+                    {c.fuente === 'DP_DPA_SHEETS' ? 'DPA' : (c.tipo_reclamo_nuevo || c.tipo_reclamo || '—')}
                   </td>
                   <td className="px-4 py-3 whitespace-nowrap text-xs" style={{ color: '#64748B' }}>
                     {formatDate(c.fe_declaracion)}
