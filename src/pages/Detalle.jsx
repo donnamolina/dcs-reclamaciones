@@ -103,7 +103,7 @@ export default function Detalle({ data, loading, refresh }) {
       })
     }
     return rows
-  }, [baseData, search, filterPerito, filterTaller, filterSem])
+  }, [baseData, search, filterPerito, filterTaller, filterProductor, filterSem])
 
   const sorted = useMemo(() => {
     return [...filtered].sort((a, b) => {
