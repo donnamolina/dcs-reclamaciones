@@ -33,6 +33,19 @@ function calcDias(fe_declaracion) {
 
 function uniq(arr) { return [...new Set(arr.filter(Boolean))].sort() }
 
+function normalizeTipo(c) {
+  if (c.fuente === 'DP_DPA_SHEETS') return 'DPA'
+  const raw = (c.tipo_reclamo_nuevo || c.tipo_reclamo || '').trim().toUpperCase()
+  if (!raw) return null
+  const hasPropio   = raw.includes('PROPIO')
+  const hasTercero  = raw.includes('TERCERO')
+  if (hasPropio && hasTercero) return 'Daños Propios / Daños a Terceros'
+  if (hasPropio)  return 'Daños Propios'
+  if (hasTercero) return 'Daños a Terceros'
+  // title-case fallback for other types
+  return raw.charAt(0) + raw.slice(1).toLowerCase()
+}
+
 function formatDate(val) {
   if (!val) return '—'
   try { return new Date(val).toLocaleDateString('es-DO', { day: '2-digit', month: '2-digit', year: 'numeric' }) }
@@ -105,7 +118,7 @@ export default function Detalle({ data, loading, refresh }) {
     peritos:     uniq(baseData.map(c => c.perito || 'Sin Asignar')),
     talleres:    uniq(baseData.map(c => c.nm_taller || 'Sin Taller')),
     productores: uniq(baseData.map(c => c.productor || 'Sin Productor')),
-    tipos:       uniq(baseData.map(c => c.fuente === 'DP_DPA_SHEETS' ? 'DPA' : (c.tipo_reclamo_nuevo || c.tipo_reclamo)).filter(Boolean)),
+    tipos:       uniq(baseData.map(c => normalizeTipo(c)).filter(Boolean)),
   }), [baseData])
 
   const filteredPeritoOptions = useMemo(() =>
@@ -158,8 +171,7 @@ export default function Detalle({ data, loading, refresh }) {
     }
     if (filterTipos.length) {
       rows = rows.filter(c => {
-        const tipo = c.fuente === 'DP_DPA_SHEETS' ? 'DPA' : (c.tipo_reclamo_nuevo || c.tipo_reclamo)
-        return filterTipos.includes(tipo)
+        return filterTipos.includes(normalizeTipo(c))
       })
     }
     return rows
@@ -554,7 +566,7 @@ export default function Detalle({ data, loading, refresh }) {
                     <LifecycleStatusBadge deEstatus={c.de_estatus} cdEstatus={c.cd_estatus} size="xs" />
                   </td>
                   <td className="px-4 py-3 text-xs whitespace-nowrap" style={{ color: '#64748B' }}>
-                    {c.fuente === 'DP_DPA_SHEETS' ? 'DPA' : (c.tipo_reclamo_nuevo || c.tipo_reclamo || '—')}
+                    {normalizeTipo(c) || '—'}
                   </td>
                   <td className="px-4 py-3 whitespace-nowrap text-xs" style={{ color: '#64748B' }}>
                     {formatDate(c.fe_declaracion)}
