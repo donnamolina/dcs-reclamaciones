@@ -10,7 +10,7 @@ function Field({ label, value }) {
   return (
     <div>
       <dt className="text-xs font-medium uppercase tracking-wide" style={{ color: '#94A3B8' }}>{label}</dt>
-      <dd className="mt-0.5 text-sm" style={{ color: '#1E293B' }}>{value}</dd>
+      <dd className="mt-0.5 text-sm" style={{ color: '#1E293B', wordBreak: 'break-word', overflowWrap: 'anywhere' }}>{value}</dd>
     </div>
   )
 }
