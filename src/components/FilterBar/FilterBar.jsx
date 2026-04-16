@@ -16,6 +16,8 @@ export default function FilterBar({ data = [], applicableFilters = {} }) {
     sucursales: [...new Set(data.map(c => c.de_sucursal).filter(Boolean))].sort(),
     zonas:      [...new Set(data.map(c => c.zona_geografica).filter(Boolean))].sort(),
     tipoSirweb: [...new Set(data.map(c => c.tipo_reclamo).filter(Boolean))].sort(),
+    // Derive actual estatus values from data so SIRWEB labels match
+    estatuses:  [...new Set(data.map(c => c.de_estatus).filter(Boolean))].sort(),
   }), [data])
 
   const show = (key) => applicableFilters[key] !== false
@@ -96,11 +98,11 @@ export default function FilterBar({ data = [], applicableFilters = {} }) {
 
           {/* Row 1: Estatus + Tipo Reclamo */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            {show('estatus') && (
+            {show('estatus') && options.estatuses.length > 0 && (
               <div>
                 <p className="text-xs font-semibold mb-1.5" style={{ color: '#94A3B8' }}>ESTATUS</p>
                 <div className="flex flex-wrap gap-1">
-                  {Object.keys(LIFECYCLE_STATUSES).map(st => {
+                  {options.estatuses.map(st => {
                     const active = filters.estatus.includes(st)
                     const info = LIFECYCLE_STATUSES[st]
                     return (
@@ -109,9 +111,9 @@ export default function FilterBar({ data = [], applicableFilters = {} }) {
                         onClick={() => toggleArrayFilter('estatus', st)}
                         className="px-2 py-1 rounded text-xs font-medium border transition-all"
                         style={{
-                          background: active ? info.hex : '#F8FAFC',
+                          background: active ? (info?.hex || '#475569') : '#F8FAFC',
                           color: active ? 'white' : '#475569',
-                          borderColor: active ? info.hex : '#E2E8F0',
+                          borderColor: active ? (info?.hex || '#475569') : '#E2E8F0',
                         }}
                       >
                         {st}

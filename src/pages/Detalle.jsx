@@ -38,13 +38,15 @@ export default function Detalle({ data, loading, refresh }) {
   const location = useLocation()
   const { filters } = useFilters()
 
-  const [search, setSearch]                 = useState('')
-  const [filterPerito, setFilterPerito]     = useState('')
-  const [filterTaller, setFilterTaller]     = useState('')
-  const [filterProductor, setFilterProductor] = useState('')
-  const [filterSem, setFilterSem]           = useState('')
+  const [search, setSearch]               = useState('')
+  const [filterPeritos, setFilterPeritos]   = useState([])
+  const [filterTallers, setFilterTallers]   = useState([])
+  const [filterProductores, setFilterProductores] = useState([])
+  const [filterSems, setFilterSems]         = useState([])
+  const [productorSearch, setProductorSearch] = useState('')
+  const [productorOpen, setProductorOpen]   = useState(false)
   const [sortKey, setSortKey]               = useState('fe_declaracion')
-  const [sortDir, setSortDir]               = useState('desc')
+  const [sortDir, setSortDir]               = useState('desc')  // 'asc' | 'desc' | null
   const [page, setPage]                     = useState(1)
   const [selected, setSelected]             = useState(null)
   const [showForm, setShowForm]             = useState(false)
@@ -54,9 +56,14 @@ export default function Detalle({ data, loading, refresh }) {
     const params = new URLSearchParams(location.search)
     const p = params.get('perito')
     const t = params.get('taller')
-    if (p) setFilterPerito(p)
-    if (t) setFilterTaller(t)
+    if (p) setFilterPeritos([p])
+    if (t) setFilterTallers([t])
   }, [location.search])
+
+  function toggleChip(setter, val) {
+    setter(prev => prev.includes(val) ? prev.filter(x => x !== val) : [...prev, val])
+    setPage(1)
+  }
 
   // Apply global filters first
   const globalFiltered = useMemo(() => applyFilters(data, filters, APPLICABLE), [data, filters])
@@ -69,10 +76,16 @@ export default function Detalle({ data, loading, refresh }) {
   )
 
   const options = useMemo(() => ({
-    peritos:    uniq(baseData.map(c => c.perito || 'Sin Asignar')),
-    talleres:   uniq(baseData.map(c => c.nm_taller || 'Sin Taller')),
+    peritos:     uniq(baseData.map(c => c.perito || 'Sin Asignar')),
+    talleres:    uniq(baseData.map(c => c.nm_taller || 'Sin Taller')),
     productores: uniq(baseData.map(c => c.productor || 'Sin Productor')),
   }), [baseData])
+
+  const filteredProductorOptions = useMemo(() =>
+    options.productores.filter(p =>
+      p.toLowerCase().includes(productorSearch.toLowerCase()) &&
+      !filterProductores.includes(p)
+    ), [options.productores, productorSearch, filterProductores])
 
   const filtered = useMemo(() => {
     let rows = baseData
@@ -86,26 +99,27 @@ export default function Detalle({ data, loading, refresh }) {
         (c.nm_taller || '').toLowerCase().includes(q)
       )
     }
-    if (filterPerito) {
-      rows = rows.filter(c => filterPerito === 'Sin Asignar' ? !c.perito : c.perito === filterPerito)
+    if (filterPeritos.length) {
+      rows = rows.filter(c => filterPeritos.includes(c.perito || 'Sin Asignar'))
     }
-    if (filterTaller) {
-      rows = rows.filter(c => filterTaller === 'Sin Taller' ? !c.nm_taller : c.nm_taller === filterTaller)
+    if (filterTallers.length) {
+      rows = rows.filter(c => filterTallers.includes(c.nm_taller || 'Sin Taller'))
     }
-    if (filterProductor) {
-      rows = rows.filter(c => filterProductor === 'Sin Productor' ? !c.productor : c.productor === filterProductor)
+    if (filterProductores.length) {
+      rows = rows.filter(c => filterProductores.includes(c.productor || 'Sin Productor'))
     }
-    if (filterSem) {
+    if (filterSems.length) {
       rows = rows.filter(c => {
         const s = getSemaforo(c)
-        if (filterSem === 'ninguno') return !s
-        return s?.key === filterSem
+        if (filterSems.includes('ninguno')) return !s || filterSems.includes(s?.key)
+        return s && filterSems.includes(s?.key)
       })
     }
     return rows
-  }, [baseData, search, filterPerito, filterTaller, filterProductor, filterSem])
+  }, [baseData, search, filterPeritos, filterTallers, filterProductores, filterSems])
 
   const sorted = useMemo(() => {
+    if (!sortKey || !sortDir) return filtered
     return [...filtered].sort((a, b) => {
       let av = a[sortKey], bv = b[sortKey]
       if (av == null) return 1
@@ -120,19 +134,24 @@ export default function Detalle({ data, loading, refresh }) {
   const pageData = sorted.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
 
   function toggleSort(key) {
-    if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    if (sortKey !== key) { setSortKey(key); setSortDir('asc') }
+    else if (sortDir === 'asc') setSortDir('desc')
+    else if (sortDir === 'desc') { setSortKey(null); setSortDir(null) }
     else { setSortKey(key); setSortDir('asc') }
     setPage(1)
   }
 
   function clearLocal() {
-    setSearch(''); setFilterPerito(''); setFilterTaller(''); setFilterProductor(''); setFilterSem(''); setPage(1)
+    setSearch('')
+    setFilterPeritos([]); setFilterTallers([]); setFilterProductores([]); setFilterSems([])
+    setProductorSearch('')
+    setPage(1)
   }
 
-  const hasLocal = search || filterPerito || filterTaller || filterProductor || filterSem
+  const hasLocal = search || filterPeritos.length || filterTallers.length || filterProductores.length || filterSems.length
 
   const SortIcon = ({ col }) => {
-    if (sortKey !== col) return <span className="ml-1 opacity-20">↕</span>
+    if (sortKey !== col || !sortDir) return <span className="ml-1 opacity-20">↕</span>
     return <span className="ml-1">{sortDir === 'asc' ? '↑' : '↓'}</span>
   }
 
@@ -206,9 +225,10 @@ export default function Detalle({ data, loading, refresh }) {
       <FilterBar data={data} applicableFilters={APPLICABLE} />
 
       {/* Local quick filters */}
-      <div className="bg-white rounded-xl p-4" style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-          <div className="col-span-2 relative">
+      <div className="bg-white rounded-xl p-4 space-y-3" style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
+        {/* Row 1: search + clear */}
+        <div className="flex gap-3 items-center">
+          <div className="flex-1 relative">
             <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4" style={{ color: '#94A3B8' }}
               fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
@@ -222,41 +242,110 @@ export default function Detalle({ data, loading, refresh }) {
               style={{ borderColor: '#E2E8F0', color: '#334155' }}
             />
           </div>
-
-          <select value={filterPerito} onChange={e => { setFilterPerito(e.target.value); setPage(1) }}
-            className="py-2 px-3 text-sm rounded-lg border outline-none" style={{ borderColor: '#E2E8F0', color: '#334155' }}>
-            <option value="">Todos los Peritos</option>
-            {options.peritos.map(p => <option key={p} value={p}>{p}</option>)}
-          </select>
-
-          <select value={filterTaller} onChange={e => { setFilterTaller(e.target.value); setPage(1) }}
-            className="py-2 px-3 text-sm rounded-lg border outline-none" style={{ borderColor: '#E2E8F0', color: '#334155' }}>
-            <option value="">Todos los Talleres</option>
-            {options.talleres.map(t => <option key={t} value={t}>{t}</option>)}
-          </select>
-
-          <select value={filterProductor} onChange={e => { setFilterProductor(e.target.value); setPage(1) }}
-            className="py-2 px-3 text-sm rounded-lg border outline-none" style={{ borderColor: '#E2E8F0', color: '#334155' }}>
-            <option value="">Todos los Productores</option>
-            {options.productores.map(p => <option key={p} value={p}>{p}</option>)}
-          </select>
-
-          <select value={filterSem} onChange={e => { setFilterSem(e.target.value); setPage(1) }}
-            className="py-2 px-3 text-sm rounded-lg border outline-none" style={{ borderColor: '#E2E8F0', color: '#334155' }}>
-            <option value="">Todo Semáforo</option>
-            <option value="verde">🟢 Verde</option>
-            <option value="amarillo">🟡 Amarillo</option>
-            <option value="rojo">🔴 Rojo</option>
-            <option value="ninguno">Sin Semáforo</option>
-          </select>
-
           {hasLocal && (
-            <button onClick={clearLocal}
-              className="px-3 py-2 rounded-lg text-sm font-medium"
+            <button onClick={clearLocal} className="px-3 py-2 rounded-lg text-sm font-medium whitespace-nowrap"
               style={{ color: '#EF4444', background: '#FEF2F2' }}>
-              Limpiar local
+              Limpiar
             </button>
           )}
+        </div>
+
+        {/* Row 2: Perito multi-select */}
+        <div>
+          <p className="text-xs font-semibold mb-1.5" style={{ color: '#94A3B8' }}>PERITO</p>
+          <div className="flex flex-wrap gap-1.5">
+            {options.peritos.map(p => (
+              <button key={p} onClick={() => toggleChip(setFilterPeritos, p)}
+                className="px-2.5 py-1 rounded-full text-xs font-medium border transition-all"
+                style={{
+                  background: filterPeritos.includes(p) ? '#003DA5' : '#F8FAFC',
+                  color: filterPeritos.includes(p) ? 'white' : '#475569',
+                  borderColor: filterPeritos.includes(p) ? '#003DA5' : '#E2E8F0',
+                }}>
+                {p}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Row 3: Taller multi-select */}
+        <div>
+          <p className="text-xs font-semibold mb-1.5" style={{ color: '#94A3B8' }}>TALLER</p>
+          <div className="flex flex-wrap gap-1.5">
+            {options.talleres.map(t => (
+              <button key={t} onClick={() => toggleChip(setFilterTallers, t)}
+                className="px-2.5 py-1 rounded-full text-xs font-medium border transition-all"
+                style={{
+                  background: filterTallers.includes(t) ? '#003DA5' : '#F8FAFC',
+                  color: filterTallers.includes(t) ? 'white' : '#475569',
+                  borderColor: filterTallers.includes(t) ? '#003DA5' : '#E2E8F0',
+                }}>
+                {t.length > 28 ? t.slice(0, 28) + '…' : t}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Row 4: Productor — searchable */}
+        <div>
+          <p className="text-xs font-semibold mb-1.5" style={{ color: '#94A3B8' }}>PRODUCTOR</p>
+          {filterProductores.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 mb-2">
+              {filterProductores.map(p => (
+                <button key={p} onClick={() => toggleChip(setFilterProductores, p)}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium"
+                  style={{ background: '#003DA5', color: 'white' }}>
+                  {p} ×
+                </button>
+              ))}
+            </div>
+          )}
+          <div className="relative" style={{ maxWidth: 320 }}>
+            <input
+              value={productorSearch}
+              onChange={e => { setProductorSearch(e.target.value); setProductorOpen(true) }}
+              onFocus={() => setProductorOpen(true)}
+              onBlur={() => setTimeout(() => setProductorOpen(false), 150)}
+              placeholder="Buscar productor..."
+              className="w-full pl-3 pr-3 py-1.5 text-xs rounded-lg border outline-none"
+              style={{ borderColor: '#E2E8F0', color: '#334155' }}
+            />
+            {productorOpen && filteredProductorOptions.length > 0 && (
+              <div className="absolute z-20 mt-1 w-full bg-white rounded-lg border overflow-y-auto"
+                style={{ borderColor: '#E2E8F0', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', maxHeight: 200 }}>
+                {filteredProductorOptions.slice(0, 30).map(p => (
+                  <button key={p} onMouseDown={() => { toggleChip(setFilterProductores, p); setProductorSearch('') }}
+                    className="w-full text-left px-3 py-2 text-xs hover:bg-blue-50 transition-colors"
+                    style={{ color: '#334155' }}>
+                    {p}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Row 5: Semáforo multi-select */}
+        <div>
+          <p className="text-xs font-semibold mb-1.5" style={{ color: '#94A3B8' }}>SEMÁFORO</p>
+          <div className="flex flex-wrap gap-1.5">
+            {[
+              { val: 'verde',    label: '🟢 Verde' },
+              { val: 'amarillo', label: '🟡 Amarillo' },
+              { val: 'rojo',     label: '🔴 Rojo' },
+              { val: 'ninguno',  label: '⚪ Sin semáforo' },
+            ].map(({ val, label }) => (
+              <button key={val} onClick={() => toggleChip(setFilterSems, val)}
+                className="px-2.5 py-1 rounded-full text-xs font-medium border transition-all"
+                style={{
+                  background: filterSems.includes(val) ? '#1E293B' : '#F8FAFC',
+                  color: filterSems.includes(val) ? 'white' : '#475569',
+                  borderColor: filterSems.includes(val) ? '#1E293B' : '#E2E8F0',
+                }}>
+                {label}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
